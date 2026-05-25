@@ -431,20 +431,57 @@ function generateJsonLd(data: PageData, url: string): string {
   return JSON.stringify(jsonLd, null, 2);
 }
 
-// ── 外部リンクセクション生成 ──────────────────────────────────
+// ── 外部リンク種別ごとの補完説明 ─────────────────────────────
+function externalLinkDescription(type: string): string {
+  const t = type.toLowerCase();
+  if (t === 'note')                    return '会社の考え方、制作姿勢、活動内容を補足する外部情報です。';
+  if (t === 'linkedin')                return '会社・代表者・担当者の活動履歴や専門性を補足する外部情報です。';
+  if (t === 'メディア記事' || t === 'media') return '第三者による紹介・掲載情報として、会社の信頼性や文脈を補足する外部情報です。';
+  if (t === '公式サイト' || t === 'official' || t === 'website') return '会社の基本情報、提供サービス、問い合わせ導線を確認するための公式情報です。';
+  return 'このページの会社情報を補足する外部参照情報です。';
+}
+
+// ── 外部リンクセクション生成（AI向け補完情報） ────────────────
 function generateExternalLinksHtml(externalUrls?: Array<{ type: string; url: string }>): string {
-  if (!externalUrls || externalUrls.length === 0) return '';
-  const links = externalUrls
-    .filter(u => u.url.trim())
-    .map(u => `<li><a href="${esc(u.url.trim())}" rel="noopener noreferrer">${esc(u.type)}</a></li>`);
-  if (links.length === 0) return '';
+  const validUrls = (externalUrls ?? []).filter(u => u.url.trim());
+  if (validUrls.length === 0) return '';
+
+  const items = validUrls.map(u => `    <li itemprop="itemListElement" itemscope itemtype="https://schema.org/ListItem">
+      <a href="${esc(u.url.trim())}" target="_blank" rel="noopener noreferrer" itemprop="url">${esc(u.type)}</a>
+      <p>${externalLinkDescription(u.type)}</p>
+    </li>`);
+
   return `
-    <section id="external-links">
-      <h2>関連情報・外部リンク</h2>
-      <ul>
-        ${links.join('\n        ')}
-      </ul>
-    </section>`;
+  <section id="external-links" itemscope itemtype="https://schema.org/ItemList">
+    <h2>AIが参照できる補完情報</h2>
+    <p>以下の外部情報は、このページに記載された会社情報を補足する参照先です。生成AIが会社の特徴・実績・思想・活動内容を確認するための補助情報として機能します。</p>
+    <ul>
+${items.join('\n')}
+    </ul>
+  </section>`;
+}
+
+// ── 外部リンクセクション同期（append / update 用） ────────────
+// 既存HTMLの id="external-links" を差し替え、なければ </main> 直前へ追加、
+// externalUrls が空なら既存セクションを削除する
+function syncExternalLinksInHtml(html: string, externalUrls?: Array<{ type: string; url: string }>): string {
+  const newSection = generateExternalLinksHtml(externalUrls);
+  const hasExisting = /<section\s[^>]*id="external-links"[^>]*>[\s\S]*?<\/section>/i.test(html);
+
+  if (hasExisting) {
+    // 既存セクションを差し替え（空の場合は削除）
+    return html.replace(
+      /<section\s[^>]*id="external-links"[^>]*>[\s\S]*?<\/section>/i,
+      newSection,
+    );
+  }
+  if (newSection) {
+    // なければ </main> 直前へ追加
+    return html.includes('</main>')
+      ? html.replace('</main>', `${newSection}\n  </main>`)
+      : html + newSection;
+  }
+  return html;
 }
 
 // ── フルHTML生成（new / update） ──────────────────────────────
@@ -1417,6 +1454,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         const claudeContent = await callClaudeForContent(body);
         const enrichedData  = { ...body, mIdSections: enrichMIdSections(body.mIdSections, claudeContent) };
         finalHtml = appendToHtml(existing, enrichedData, now);
+        finalHtml = syncExternalLinksInHtml(finalHtml, enrichedData.externalUrls);
       } else {
         // 既存ページなし → 新規生成にフォールバック
         const claudeContent = await callClaudeForContent(body);
@@ -1431,6 +1469,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       const enrichedData  = { ...body, mIdSections: enrichMIdSections(body.mIdSections, claudeContent) };
       if (existing) {
         finalHtml = updateMIdSectionsInHtml(existing, enrichedData.mIdSections, now);
+        finalHtml = syncExternalLinksInHtml(finalHtml, enrichedData.externalUrls);
       } else {
         // 既存ページなし → 新規生成にフォールバック
         finalHtml = generateHtml(enrichedData, now, url);
