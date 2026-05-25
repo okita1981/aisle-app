@@ -320,10 +320,10 @@ export function Report() {
       {/* ── カバー ────────────────────────────────────────────── */}
       <div className="bg-gradient-to-br from-indigo-600 to-indigo-800 rounded-2xl p-8 text-white print:rounded-none print:mb-8">
         <div className="text-xs font-semibold tracking-widest text-indigo-300 mb-2 uppercase">
-          AI出現設計診断レポート
+          AI回答改善 診断レポート
         </div>
-        <h1 className="text-3xl font-bold mb-1">出現設計 総合レポート</h1>
-        <p className="text-indigo-200 text-sm">ログ取得 ・ 因果分析 ・ 出現設計 ・ 設計レビュー ・ 実装設計の統合診断レポート</p>
+        <h1 className="text-3xl font-bold mb-1">AI回答改善 総合レポート</h1>
+        <p className="text-indigo-200 text-sm">ログ取得 ・ 因果分析 ・ AI向け情報設計 ・ 設計レビュー ・ 実装設計の統合診断レポート</p>
         <div className="mt-6 flex flex-wrap gap-6 text-sm">
           <div>
             <span className="text-indigo-300 text-xs">会社名</span>
@@ -340,11 +340,11 @@ export function Report() {
         </div>
       </div>
 
-      {/* ── Aisleのアプローチについて ─────────────────────────── */}
+      {/* ── AI上で選ばれるための考え方 ─────────────────────────── */}
       <div className="border-l-4 border-blue-500 bg-slate-100 rounded-r-xl px-6 py-5">
-        <div className="text-xs font-bold text-blue-600 uppercase tracking-wider mb-2">Aisleのアプローチについて</div>
+        <div className="text-xs font-bold text-blue-600 uppercase tracking-wider mb-2">AI上で選ばれるための考え方</div>
         <p className="text-sm text-slate-700 leading-relaxed">
-          Aisleは「AI出現設計」の専門フレームワークです。SEOが検索エンジンのアルゴリズム向けに人間が読むコンテンツを最適化するのに対し、Aisleは生成AI（ChatGPT・Perplexityなど）が回答を生成する際に、あなたの商材・ブランドが自然に引用・推薦されるよう、意味構造・構文設計・外部接点を体系的に整備します。成功の唯一の指標は「出現したか」——コンテンツを書いたかどうかではなく、AIの回答の中に現れたかどうかです。本レポートはその一連の診断と設計の統合結果です。
+          生成AI（ChatGPT・Perplexityなど）は、ユーザーの問いに対して「候補として言及すべき会社・サービス」を自律的に判断します。その判断の根拠になるのは、Webに存在する情報の意味構造・説明の具体性・第三者からの言及の有無です。SEOが「人間に読んでもらうコンテンツ」を最適化するのに対し、本レポートで扱うのは「AIが回答を生成する際に参照できる情報設計」です。成功の唯一の指標は「AIの回答の中に現れたか」——コンテンツを書いたかどうかではなく、実際に言及されたかどうかです。本レポートはその診断から実装施策までの統合結果です。
         </p>
       </div>
 
@@ -353,21 +353,21 @@ export function Report() {
         <h2 className="text-base font-bold text-slate-500 uppercase tracking-widest mb-4">Executive Summary</h2>
         <div className="grid grid-cols-4 gap-4">
           <StatCard
-            label="平均出現率（因果分析）"
+            label="平均AI言及率（因果分析）"
             value={avgAppearanceRate !== null ? `${avgAppearanceRate}%` : '—'}
-            sub="P-ID全体の平均"
+            sub="問いタイプ全体の平均"
             color="bg-indigo-50 border-indigo-200 text-indigo-700"
           />
           <StatCard
-            label="設計構文数（出現設計）"
+            label="説明文数（AI向け情報設計）"
             value={totalSbIds !== null ? `${totalSbIds}件` : '—'}
-            sub="設計構文数"
+            sub="設計した説明文の総数"
             color="bg-blue-50 border-blue-200 text-blue-700"
           />
           <StatCard
-            label="出現率（設計レビュー）"
+            label="AI言及率（設計レビュー）"
             value={reconciledRate !== null ? `${reconciledRate}%` : '—'}
-            sub="構文 × P-ID 出現率"
+            sub="説明文 × 問いタイプ 言及率"
             color="bg-purple-50 border-purple-200 text-purple-700"
           />
           <StatCard
@@ -384,7 +384,7 @@ export function Report() {
           <div className="flex items-center gap-2 flex-wrap">
             {[
               { num: '02', label: '因果分析', sub: 'なぜ出ないか', color: 'bg-indigo-600', done: !!phase1Result },
-              { num: '03', label: '出現設計', sub: 'AIに読ませる説明文設計', color: 'bg-blue-600', done: !!phase2Result },
+              { num: '03', label: 'AI向け情報設計', sub: 'AIに読ませる説明文設計', color: 'bg-blue-600', done: !!phase2Result },
               { num: '04', label: '設計レビュー', sub: '実装前確認', color: 'bg-purple-600', done: !!phase3Result },
               { num: '05', label: '実装設計', sub: 'AI専用ページ生成', color: 'bg-green-600', done: !!phase4Result },
             ].map((step, i) => (
@@ -421,16 +421,21 @@ export function Report() {
         <SectionHeader
           num="02"
           title="因果分析"
-          subtitle="GPT出力ログの出現率・AI回答の特徴と出現しにくい要因を分析"
+          subtitle="AIの回答ログから、自社が言及されなかった理由と競合が選ばれた文脈を整理"
           color="border-indigo-400 bg-indigo-400"
         />
+
+        {/* G-4-2: 工程間の因果接続 */}
+        <div className="mb-5 bg-indigo-50 border border-indigo-100 rounded-xl px-4 py-3 text-sm text-slate-700 leading-relaxed">
+          この工程では、AIの回答に自社が含まれなかった理由を、競合が選ばれた文脈と比較して整理します。出現しにくい要因の特定と、競合が出現できている根拠の分析が、次工程の説明文設計の起点になります。
+        </div>
 
         {!phase1Result ? <NoData phase="因果分析" /> : (
           <div className="space-y-6">
             {/* 出現率グラフ */}
             <div className="bg-white border border-slate-200 rounded-2xl p-5">
-              <div className="text-sm font-bold text-slate-700 mb-1">P-ID別 出現率</div>
-              <div className="text-xs text-slate-400 mb-4">プロンプトタイプごとのGPT出現率（%）</div>
+              <div className="text-sm font-bold text-slate-700 mb-1">問いタイプ別 AI言及率</div>
+              <div className="text-xs text-slate-400 mb-4">問いタイプごとのAI言及率（%）</div>
               <AppearanceBarChart data={appearanceChartData} />
             </div>
 
@@ -586,8 +591,8 @@ export function Report() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="bg-slate-50">
-                    <th className="px-5 py-2.5 text-left text-xs font-semibold text-slate-500">P-ID</th>
-                    <th className="px-5 py-2.5 text-left text-xs font-semibold text-slate-500">プロンプトタイプ</th>
+                    <th className="px-5 py-2.5 text-left text-xs font-semibold text-slate-500">問いタイプ</th>
+                    <th className="px-5 py-2.5 text-left text-xs font-semibold text-slate-500">問いの種類</th>
                     <th className="px-5 py-2.5 text-center text-xs font-semibold text-slate-500">試行数</th>
                     <th className="px-5 py-2.5 text-center text-xs font-semibold text-slate-500">出現数</th>
                     <th className="px-5 py-2.5 text-center text-xs font-semibold text-slate-500">出現率</th>
@@ -638,13 +643,13 @@ export function Report() {
                   )}
                   {phase1Result && (
                     <span>
-                      <span className="text-slate-400">試行数（P-IDあたり）：</span>
+                      <span className="text-slate-400">試行数（問いタイプあたり）：</span>
                       {phase1Result.sub1.appearanceRates[0]?.trialCount ?? '—'}回
                     </span>
                   )}
                   {phase1Result && (
                     <span>
-                      <span className="text-slate-400">測定P-ID数：</span>
+                      <span className="text-slate-400">測定した問いタイプ数：</span>
                       {phase1Result.sub1.appearanceRates.length}件
                     </span>
                   )}
@@ -672,7 +677,7 @@ export function Report() {
                 <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden">
                   <div className="px-5 py-4 border-b border-slate-100">
                     <div className="text-sm font-bold text-slate-700">📋 出力ログサンプル</div>
-                    <div className="text-xs text-slate-400 mt-0.5">P-IDごとに出現あり・出現なし各1件の抜粋</div>
+                    <div className="text-xs text-slate-400 mt-0.5">問いタイプごとにAI言及あり・なし各1件の抜粋</div>
                   </div>
                   <div className="divide-y divide-slate-100">
                     {pids.map(([pid, rec]) => (
@@ -732,28 +737,33 @@ export function Report() {
       <div className="print:break-before-page">
         <SectionHeader
           num="03"
-          title="出現設計"
-          subtitle="出現設計の狙い・構文ポートフォリオ・AIに読ませる説明文"
+          title="AI向け情報設計"
+          subtitle="前工程で確認した出現しにくい理由をもとに、自社が候補として説明されるための意味接点と説明文を設計"
           color="border-blue-400 bg-blue-400"
         />
 
-        {!phase2Result ? <NoData phase="出現設計" /> : (
+        {/* G-4-2: 工程間の因果接続 */}
+        <div className="mb-5 bg-blue-50 border border-blue-100 rounded-xl px-4 py-3 text-sm text-slate-700 leading-relaxed">
+          前工程（因果分析）で確認された「競合に代替された理由」をもとに、自社が候補として説明されるための意味接点を設計します。各説明文は、特定の問いに対してAIが参照できる根拠情報として機能することを目的に設計されています。
+        </div>
+
+        {!phase2Result ? <NoData phase="AI向け情報設計" /> : (
           <div className="space-y-5">
             {/* 設計概要カード */}
             <div className="grid grid-cols-3 gap-4">
               <div className="bg-white border border-slate-200 rounded-2xl p-4 text-center">
                 <div className="text-2xl font-bold text-blue-700">{phase2Result.perPID.length}</div>
-                <div className="text-xs text-slate-500 mt-1">設計P-ID数</div>
+                <div className="text-xs text-slate-500 mt-1">設計した問いタイプ数</div>
               </div>
               <div className="bg-white border border-slate-200 rounded-2xl p-4 text-center">
                 <div className="text-2xl font-bold text-blue-700">{totalSbIds}</div>
-                <div className="text-xs text-slate-500 mt-1">設計構文数</div>
+                <div className="text-xs text-slate-500 mt-1">説明文数</div>
               </div>
               <div className="bg-white border border-slate-200 rounded-2xl p-4 text-center">
                 <div className="text-2xl font-bold text-blue-700">
                   {[...new Set(phase2Result.perPID.flatMap(p => p.portfolio.map(r => r.mId)))].length}
                 </div>
-                <div className="text-xs text-slate-500 mt-1">出現設計の観点</div>
+                <div className="text-xs text-slate-500 mt-1">意味接点の種類</div>
               </div>
             </div>
 
@@ -770,12 +780,12 @@ export function Report() {
                     </div>
                   </div>
                   <span className="text-sm font-semibold text-slate-700 flex-1 min-w-0 truncate">{pid.promptText}</span>
-                  <span className="ml-auto text-xs text-slate-400 flex-shrink-0">{pid.portfolio.length}構文設計</span>
+                  <span className="ml-auto text-xs text-slate-400 flex-shrink-0">{pid.portfolio.length}件の説明文</span>
                 </div>
 
                 {/* M-IDマッピング */}
                 <div className="px-5 py-3 border-b border-slate-100">
-                  <div className="text-xs font-semibold text-slate-500 mb-2">出現設計の狙い</div>
+                  <div className="text-xs font-semibold text-slate-500 mb-2">設計の狙い（意味接点）</div>
                   <div className="space-y-2">
                     {pid.mIdMapping.map((m, j) => {
                       const necessity = m.designNecessity ?? '';
@@ -808,7 +818,7 @@ export function Report() {
                 {/* 出現設計の考え方 */}
                 {pid.connectionComment && (
                   <div className="px-5 py-3 border-t border-slate-100 bg-slate-50/60">
-                    <div className="text-xs font-semibold text-slate-500 mb-1">出現設計の考え方</div>
+                    <div className="text-xs font-semibold text-slate-500 mb-1">設計の考え方</div>
                     <p className="text-xs text-slate-700 leading-relaxed">{filterIds(pid.connectionComment)}</p>
                   </div>
                 )}
@@ -816,7 +826,7 @@ export function Report() {
                 {/* 出現到達性評価サマリー */}
                 {pid.appearanceSummary?.overallImpression && (
                   <div className="px-5 py-3 border-t border-slate-100 bg-blue-50/40">
-                    <div className="text-xs font-semibold text-blue-600 mb-1">出現到達性 総評</div>
+                    <div className="text-xs font-semibold text-blue-600 mb-1">AI回答への到達性 総評</div>
                     <p className="text-xs text-slate-700 leading-relaxed">{filterIds(pid.appearanceSummary.overallImpression)}</p>
                   </div>
                 )}
@@ -897,15 +907,14 @@ export function Report() {
       <div className="print:break-before-page">
         <SectionHeader
           num="04"
-          title="出現設計レビュー"
-          subtitle="出現設計で作成した説明文を実装前に確認し、到達可能性・優先対応箇所を整理"
+          title="設計レビュー"
+          subtitle="作成した説明文が、実際の問いに対してAI回答の候補選出理由として機能するかを確認"
           color="border-purple-400 bg-purple-400"
         />
 
-        {/* Phase3→Phase4 連携メモ */}
-        <div className="mb-5 bg-slate-100 border border-slate-200 rounded-xl px-4 py-3 text-xs text-slate-600">
-          <span className="font-semibold text-slate-700">📎 設計レビューの位置づけ：</span>
-          設計レビュー結果は、実装計画の優先判断に使用します。ページ生成には出現設計で作成したAIに読ませる説明文を使用します。レビュー結果のページ生成への自動反映はVer2対象です。
+        {/* G-4-2: 工程間の因果接続 */}
+        <div className="mb-5 bg-purple-50 border border-purple-100 rounded-xl px-4 py-3 text-sm text-slate-700 leading-relaxed">
+          前工程（AI向け情報設計）で作成した説明文が、実際の問いに対して候補選出の理由として機能するかを確認します。ここでの評価結果が次の実装設計における優先順位の根拠になります。
         </div>
 
         {!phase3Result ? <NoData phase="設計レビュー" /> : (
@@ -922,7 +931,7 @@ export function Report() {
             <div className="grid grid-cols-2 gap-4">
               <div className="bg-white border border-slate-200 rounded-2xl p-5">
                 <div className="text-sm font-bold text-slate-700 mb-1">出現ギャップ分析</div>
-                <div className="text-xs text-slate-400 mb-3">構文 × P-IDの出現有無内訳</div>
+                <div className="text-xs text-slate-400 mb-3">説明文 × 問いタイプ の言及有無内訳</div>
                 <GapBarChart appeared={appearedCount} notAppeared={notAppearedCount} />
                 <div className="flex justify-center gap-6 mt-3 text-xs text-slate-500">
                   <span><span className="inline-block w-2.5 h-2.5 rounded-full bg-emerald-500 mr-1" />出現あり: {appearedCount}件</span>
@@ -932,7 +941,7 @@ export function Report() {
 
               <div className="bg-white border border-slate-200 rounded-2xl p-5">
                 <div className="text-sm font-bold text-slate-700 mb-1">出現困難度 分布</div>
-                <div className="text-xs text-slate-400 mb-3">構文の困難度レベル別内訳</div>
+                <div className="text-xs text-slate-400 mb-3">説明文の到達困難度レベル別内訳</div>
                 <DifficultyBarChart data={difficultyData} />
                 <div className="flex justify-center gap-4 mt-3 text-xs text-slate-500">
                   {difficultyData.map((d, i) => (
@@ -949,7 +958,7 @@ export function Report() {
             <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden">
               <div className="px-5 py-4 border-b border-slate-100">
                 <div className="text-sm font-bold text-slate-700">横型マトリクス（全体俯瞰）</div>
-                <div className="text-xs text-slate-400 mt-0.5">構文単位の到達可能性・困難要因・実装指針</div>
+                <div className="text-xs text-slate-400 mt-0.5">説明文単位のAI言及可能性・困難要因・実装指針</div>
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm min-w-[800px]">
@@ -999,8 +1008,8 @@ export function Report() {
               return (
                 <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden">
                   <div className="px-5 py-4 border-b border-slate-100">
-                    <div className="text-sm font-bold text-slate-700">実装前に確認すべき構文</div>
-                    <div className="text-xs text-slate-400 mt-0.5">到達可能性が低い・中の説明文を優先表示（上位{priorityRows.length}件）</div>
+                    <div className="text-sm font-bold text-slate-700">実装前に確認すべき説明文</div>
+                    <div className="text-xs text-slate-400 mt-0.5">AI言及可能性が低い・中の説明文を優先表示（上位{priorityRows.length}件）</div>
                   </div>
                   <div className="divide-y divide-slate-100">
                     {priorityRows.map((row, i) => (
@@ -1044,8 +1053,8 @@ export function Report() {
               return (
                 <div className="bg-white border border-red-100 rounded-2xl overflow-hidden">
                   <div className="px-5 py-4 border-b border-red-100 bg-red-50/60">
-                    <div className="text-sm font-bold text-red-800">🔴 優先対応が必要な設計文案</div>
-                    <div className="text-xs text-red-600 mt-0.5">優先度「高」かつ到達可能性「低・中」の構文（上位{highPriorityRows.length}件）</div>
+                    <div className="text-sm font-bold text-red-800">🔴 優先対応が必要な説明文</div>
+                    <div className="text-xs text-red-600 mt-0.5">優先度「高」かつAI言及可能性「低・中」の説明文（上位{highPriorityRows.length}件）</div>
                   </div>
                   <div className="divide-y divide-slate-100">
                     {highPriorityRows.map((row, i) => (
@@ -1116,9 +1125,14 @@ export function Report() {
         <SectionHeader
           num="05"
           title="実装設計"
-          subtitle="出現率向上のための具体的施策・優先度ロードマップ"
+          subtitle="レビューで弱いと判定された説明文を、ページ配置・根拠情報・接続先とともに実装施策に変換"
           color="border-green-400 bg-green-400"
         />
+
+        {/* G-4-2: 工程間の因果接続 */}
+        <div className="mb-5 bg-green-50 border border-green-100 rounded-xl px-4 py-3 text-sm text-slate-700 leading-relaxed">
+          前工程（設計レビュー）でAI言及可能性が低いと判定された説明文を、どのページに・どの根拠情報とともに・どの順序で配置するかを実装施策に変換します。各施策は「対象の問い × 補うべき欠落 × 配置先 × 根拠情報 × 期待される変化」の5点を含む形で設計されます。
+        </div>
 
         {!phase4Result ? <NoData phase="実装設計" /> : (
           <div className="space-y-5">
