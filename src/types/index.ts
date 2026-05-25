@@ -13,8 +13,9 @@ export type AnalysisMode =
 export interface LogEntry {
   id: string;
   // Phase ① 基本フィールド
-  promptId: string;       // プロンプトID（例: P-01-01）
-  prompt: string;         // プロンプト文（旧フィールド名、後方互換）
+  promptId: string;        // プロンプトID（例: P-01-01）行番号ベースの識別子
+  promptTypeId?: string;   // 問いの型（例: P-03=ランキング期待型）AI分類による意味タイプ
+  prompt: string;          // プロンプト文（旧フィールド名、後方互換）
   trialNo: number;        // 試行No
   appeared: boolean;      // 出現有無
   aiOutput: string;       // 出力本文
@@ -126,6 +127,7 @@ export interface KIdScoreRow {
 
 export interface StructureSummaryRow {
   promptId: string;
+  promptTypeId?: string;   // 問いの型（P-01〜P-06）
   rate: string;
   appearStructure: string;
   blockStructure: string;

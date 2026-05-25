@@ -741,8 +741,12 @@ export function buildStructureSummary(entries: LogEntry[], eIdMatrix?: EIdRow[])
       const topEIds = fromMatrix.length > 0 ? fromMatrix : fromEntries;
       const topE = topEIds.join(', ');
 
+      // promptTypeId: エントリから取得（AI分類の意味タイプ）、なければ行番号ベースのpromptIdで代替
+      const promptTypeId = rows[0]?.promptTypeId ?? promptId.split('-').slice(0, 2).join('-');
+
       return {
         promptId,
+        promptTypeId,
         rate,
         appearStructure: [topC, topA, topAP].filter(Boolean).join(', '),
         blockStructure: topK || '—',

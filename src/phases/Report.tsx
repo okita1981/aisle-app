@@ -485,7 +485,7 @@ export function Report() {
                       {phase1Result.sub3.structureSummary.map((row, i) => (
                         <tr key={i} className="hover:bg-slate-50">
                           <td className="px-4 py-2.5">
-                            <Badge label={translatePId(row.promptId)} color="indigo" />
+                            <Badge label={translatePId(row.promptTypeId ?? row.promptId)} color="indigo" />
                           </td>
                           <td className="px-4 py-2.5 font-semibold text-slate-700 whitespace-nowrap">{row.rate}</td>
                           <td className="px-4 py-2.5 text-slate-600 max-w-[160px] leading-relaxed">{filterIds(row.appearStructure)}</td>

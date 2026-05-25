@@ -267,21 +267,27 @@ export function Phase0LogCollect() {
   // ── フェーズ①へ進む ──────────────────────────────────────────────
   const goToPhase1 = () => {
     if (results.length === 0) return;
-    const entries: LogEntry[] = results.map((r, idx) => ({
-      id:             String(idx + 1),
-      promptId:       r.promptId,
-      prompt:         r.promptText,
-      trialNo:        r.trialNo,
-      appeared:       r.appeared,
-      aiOutput:       r.answer,
-      outputReason:   r.reason,
-      sourceCategory: r.source,
-      cId:  '',
-      aId:  '',
-      apId: '',
-      kIds: [],
-      eIds: [],
-    }));
+    const entries: LogEntry[] = results.map((r, idx) => {
+      // r.promptId は "P-01" のような行番号。prompts配列の対応インデックスから promptTypeId を取得する
+      const promptIndex = parseInt(r.promptId.split('-')[1] ?? '1') - 1;
+      const promptTypeId = prompts[promptIndex]?.promptTypeId || undefined;
+      return {
+        id:             String(idx + 1),
+        promptId:       r.promptId,
+        promptTypeId,
+        prompt:         r.promptText,
+        trialNo:        r.trialNo,
+        appeared:       r.appeared,
+        aiOutput:       r.answer,
+        outputReason:   r.reason,
+        sourceCategory: r.source,
+        cId:  '',
+        aId:  '',
+        apId: '',
+        kIds: [],
+        eIds: [],
+      };
+    });
     setLogEntries(entries);
     setPhase(2);
   };
