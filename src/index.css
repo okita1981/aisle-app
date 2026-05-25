@@ -1,0 +1,47 @@
+@import "tailwindcss";
+
+@layer base {
+  * {
+    box-sizing: border-box;
+  }
+  body {
+    margin: 0;
+    font-family: 'Hiragino Kaku Gothic ProN', 'Noto Sans JP', 'Yu Gothic', 'Meiryo', sans-serif;
+    background-color: #f1f5f9;
+    color: #1e293b;
+    -webkit-font-smoothing: antialiased;
+  }
+  #root {
+    width: 100%;
+    min-height: 100vh;
+    display: flex;
+    text-align: left;
+  }
+}
+
+@media print {
+  /* サイドバーを非表示 */
+  aside {
+    display: none !important;
+  }
+  /* 背景色・影を印刷可能に */
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+  body {
+    background-color: #ffffff !important;
+  }
+  /* ページブレーク */
+  .print\:break-before-page {
+    break-before: page;
+  }
+  /* 余白調整 */
+  main {
+    padding: 0 !important;
+  }
+  /* グラフの高さ保持 */
+  .recharts-responsive-container {
+    width: 100% !important;
+  }
+}
