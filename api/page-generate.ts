@@ -441,12 +441,27 @@ function externalLinkDescription(type: string): string {
   return 'このページの会社情報を補足する外部参照情報です。';
 }
 
+// ── 外部リンク種別ごとのAI補完ロール属性 ─────────────────────
+function externalLinkRole(type: string): string {
+  const t = type.toLowerCase();
+  if (t === 'note')                    return 'citation freshness entity-context';
+  if (t === 'linkedin')                return 'entity-context social-proof';
+  if (t === 'メディア記事' || t === 'media') return 'media-mention third-party-proof credibility';
+  if (t === '公式サイト' || t === 'official' || t === 'website') return 'official-source navigation service-info';
+  return 'external-reference';
+}
+
 // ── 外部リンクセクション生成（AI向け補完情報） ────────────────
 function generateExternalLinksHtml(externalUrls?: Array<{ type: string; url: string }>): string {
   const validUrls = (externalUrls ?? []).filter(u => u.url.trim());
   if (validUrls.length === 0) return '';
 
-  const items = validUrls.map(u => `    <li itemprop="itemListElement" itemscope itemtype="https://schema.org/ListItem">
+  const items = validUrls.map(u => `    <li
+      itemprop="itemListElement"
+      itemscope
+      itemtype="https://schema.org/ListItem"
+      data-evidence-role="${externalLinkRole(u.type)}"
+    >
       <a href="${esc(u.url.trim())}" target="_blank" rel="noopener noreferrer" itemprop="url">${esc(u.type)}</a>
       <p>${externalLinkDescription(u.type)}</p>
     </li>`);
