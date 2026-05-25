@@ -49,6 +49,7 @@ async function classifyBatch(entries: ClassifyEntry[]): Promise<ClassifyResult[]
 function runFullAnalysis(
   entries: LogEntry[],
   competitorAnalysis?: CompetitorAnalysisResult | null,
+  companyName = '',
 ): Phase1Result {
   const sourceMatrix    = buildSourceMatrix(entries);
   const appearanceRates = buildAppearanceRates(entries);
@@ -73,7 +74,7 @@ function runFullAnalysis(
   });
   const kIdMatrix        = buildKIdMatrix(e3);
   // E-ID勝因接続マトリクス: competitorAnalysis があれば詳細エンティティ付きで生成
-  const eIdMatrix        = buildEIdMatrix(e3, competitorAnalysis);
+  const eIdMatrix        = buildEIdMatrix(e3, competitorAnalysis, companyName);
   const kIdScoreMap      = buildKIdScoreMap(e3);
   // 4-4 構造接続サマリ: eIdMatrix.winningEId を優先ソースとして渡す（優先1）
   const structureSummary = buildStructureSummary(e3, eIdMatrix);
@@ -532,6 +533,7 @@ export function Phase1Evaluation() {
   const {
     logEntries, phase1Result, setLogEntries, setStats, setPhase1Result, setPhase,
     competitorAnalysis, setCompetitorAnalysis,
+    phase0Data,
   } = useAppStore();
 
   // ステップ管理（Phase0からの引き継ぎのみ）
@@ -668,7 +670,7 @@ export function Phase1Evaluation() {
       setStats(analyzeLogEntries(withKE));
 
       // ⑤ 全フェーズ結果生成
-      const result = runFullAnalysis(withKE, freshCompetitorAnalysis);
+      const result = runFullAnalysis(withKE, freshCompetitorAnalysis, phase0Data?.companyName ?? '');
       setPhase1Result(result);
       setStep('done');
     } catch (err) {
@@ -701,7 +703,7 @@ export function Phase1Evaluation() {
       });
       setLogEntries(withKE);
       setStats(analyzeLogEntries(withKE));
-      const result = runFullAnalysis(withKE, freshResult);
+      const result = runFullAnalysis(withKE, freshResult, phase0Data?.companyName ?? '');
       setPhase1Result(result);
     } catch (err) {
       setCompetitorError(err instanceof Error ? err.message : String(err));

@@ -564,6 +564,7 @@ function inferWinningEIds(
 export function buildEIdMatrix(
   entries: LogEntry[],
   competitorAnalysis?: CompetitorAnalysisResult | null,
+  companyName = '',
 ): EIdRow[] {
   const groups: Record<string, LogEntry[]> = {};
   entries.forEach(e => { (groups[e.promptId] ??= []).push(e); });
@@ -623,10 +624,18 @@ export function buildEIdMatrix(
             controlType:       ct,
             winningFactor:     entity.whyItAppeared ?? '観測データ不足',
             evidenceText:      entity.dominantStructure ?? '—',
-            gapToAisle:
-              entity.replacementRole === 'ツール例'
-                ? 'ツール競合と対象粒度が異なる。会社/サービス軸への意味接点設計が必要。'
-                : 'Aisleは当該GPT出現文脈での接点が弱く、競合の出現構造に代替されている。',
+            gapToAisle: (() => {
+              if (entity.replacementRole === 'ツール例') {
+                return 'ツール競合と対象粒度が異なる。会社/サービス軸への意味接点設計が必要。';
+              }
+              const name       = companyName || '自社';
+              const competitor = entity.entity ?? '競合';
+              const rawStrength = (entity.whyItAppeared ?? '').trim();
+              const strength   = rawStrength.length > 0
+                ? rawStrength.slice(0, 30) + (rawStrength.length > 30 ? '…' : '')
+                : '当該GPT出現文脈';
+              return `${name}は、「${strength}」文脈での接点が弱く、${competitor}が持つ出現構造に代替されている。`;
+            })(),
             implementationDirection: dir,
             relatedKId,
             comment: `${entity.entity}（${entity.entityType ?? '—'}）が「${entity.replacementRole ?? '出現'}」として観測。${entity.appearedContext === 'appeared_false' ? '自社非出現時の主要代替として機能している。' : ''}`,
