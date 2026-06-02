@@ -1,3 +1,4 @@
+import { useState, useCallback } from 'react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   PieChart, Pie, Cell, ResponsiveContainer,
@@ -207,6 +208,41 @@ function RoadmapCard({
 
 export function Report() {
   const { phase1Result, phase2Result, phase3Result, phase4Result, phase0Data, logEntries, competitorAnalysis } = useAppStore();
+
+  // ── セッション保存 ─────────────────────────────────────────────
+  const [saveState, setSaveState] = useState<'idle' | 'saving' | 'done' | 'error'>('idle');
+  const [savedKey, setSavedKey] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  const handleSaveSession = useCallback(async () => {
+    if (!phase1Result) return;
+    setSaveState('saving');
+    setSavedKey(null);
+    setSaveError(null);
+    try {
+      const resp = await fetch('/api/session-save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          phase0Data,
+          logEntries,
+          phase1Result,
+          competitorAnalysis,
+          phase2Result,
+          phase3Result,
+          phase4Result,
+        }),
+      });
+      const json = await resp.json() as { ok: boolean; sessionKey?: string; error?: string };
+      if (!json.ok) throw new Error(json.error ?? '保存失敗');
+      setSavedKey(json.sessionKey ?? null);
+      setSaveState('done');
+    } catch (e) {
+      setSaveError(e instanceof Error ? e.message : String(e));
+      setSaveState('error');
+    }
+  }, [phase0Data, logEntries, phase1Result, competitorAnalysis, phase2Result, phase3Result, phase4Result]);
+
   // ── データ変換 ──────────────────────────────────────────────
 
   // Executive Summary KPI
@@ -305,7 +341,28 @@ export function Report() {
       <div className="space-y-8 pb-16">
 
       {/* エクスポートボタン（印刷時は非表示） */}
-      <div className="flex justify-end gap-3 print:hidden">
+      <div className="flex justify-end items-center gap-3 print:hidden">
+        {/* セッション保存ステータス */}
+        {saveState === 'done' && savedKey && (
+          <div className="text-xs text-slate-500 bg-green-50 border border-green-200 rounded-lg px-3 py-2 max-w-xs">
+            <span className="text-green-700 font-semibold">✅ 保存完了</span>
+            <div className="mt-0.5 font-mono text-[10px] text-slate-500 break-all">{savedKey}</div>
+          </div>
+        )}
+        {saveState === 'error' && saveError && (
+          <div className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+            ⚠ {saveError}
+          </div>
+        )}
+
+        <button
+          onClick={() => void handleSaveSession()}
+          disabled={!phase1Result || saveState === 'saving'}
+          className="px-5 py-2.5 rounded-lg text-sm font-semibold bg-slate-700 text-white hover:bg-slate-800 active:scale-95 transition-all shadow-sm flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          {saveState === 'saving' ? '⏳ 保存中…' : '💾 セッションを保存'}
+        </button>
+
         <button
           onClick={() => window.print()}
           className="px-5 py-2.5 rounded-lg text-sm font-semibold bg-indigo-600 text-white hover:bg-indigo-700 active:scale-95 transition-all shadow-sm flex items-center gap-2"
