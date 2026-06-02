@@ -59,7 +59,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
 
         if (regenerateParent && companyName) {
           const parentHtml = generateQuestionParentHtml(updatedQIdx, now, clientSlug, companyName, productCategory);
-          await kv.set(`page:${clientSlug}`, parentHtml);
+          await kv.set(`page:index:${clientSlug}`, parentHtml);
           parentRegenerated = true;
         }
       }

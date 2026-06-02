@@ -1449,8 +1449,8 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         const updatedQIndex = [...existingQIndex, ...newQEntries];
         await kv.set(`page-question-index:${clientSlug}`, updatedQIndex);
 
-        // 親ページを問い単位インデックスで再生成
-        await kv.set(`page:${clientSlug}`, generateQuestionParentHtml(updatedQIndex, now, clientSlug, companyName, productCategory));
+        // 親ページを問い単位インデックスで再生成（page:index:〜 に保存してキー競合を回避）
+        await kv.set(`page:index:${clientSlug}`, generateQuestionParentHtml(updatedQIndex, now, clientSlug, companyName, productCategory));
 
         res.setHeader('Content-Type', 'application/json');
         res.end(JSON.stringify({ ok: true, parentUrl: `${HUB_BASE_URL}/${clientSlug}`, llmsTxtUrl: `${HUB_BASE_URL}/llms.txt`, created, skipped: [], updated: [] }));
@@ -1491,7 +1491,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         }
 
         await kv.set(`page-question-index:${clientSlug}`, updatedQIndex);
-        await kv.set(`page:${clientSlug}`, generateQuestionParentHtml(updatedQIndex, now, clientSlug, companyName, productCategory));
+        await kv.set(`page:index:${clientSlug}`, generateQuestionParentHtml(updatedQIndex, now, clientSlug, companyName, productCategory));
 
         res.setHeader('Content-Type', 'application/json');
         res.end(JSON.stringify({ ok: true, parentUrl: `${HUB_BASE_URL}/${clientSlug}`, llmsTxtUrl: `${HUB_BASE_URL}/llms.txt`, created: [], skipped: [], updated }));

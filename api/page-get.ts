@@ -38,8 +38,12 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       return;
     }
 
-    // ── 旧構造ページ（後方互換）──────────────────────────────────────────
-    const html = await kv.get<string>(`page:${slug}`);
+    // ── slug 解決：page:index:{slug} を優先、なければ page:{slug} にfallback ─
+    // page:index:{slug}  → 問い別一覧親ページ（新構造）
+    // page:{slug}        → 企業AIプロフィールページ or 旧問い別一覧（後方互換）
+    const html =
+      (await kv.get<string>(`page:index:${slug}`)) ??
+      (await kv.get<string>(`page:${slug}`));
 
     if (!html) {
       res.statusCode = 404;

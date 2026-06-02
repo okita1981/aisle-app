@@ -202,6 +202,176 @@ const AISLE_LABEL_MAP: Record<string, string> = {
   'P-06': '推薦理由深掘り型',
 };
 
+// P-IDバッジ色（後でフィルター追加時も使い回す）
+const PID_BADGE_COLOR: Record<string, string> = {
+  'P-01': 'bg-violet-100 text-violet-700 border-violet-200',
+  'P-02': 'bg-blue-100 text-blue-700 border-blue-200',
+  'P-03': 'bg-cyan-100 text-cyan-700 border-cyan-200',
+  'P-04': 'bg-amber-100 text-amber-700 border-amber-200',
+  'P-05': 'bg-green-100 text-green-700 border-green-200',
+  'P-06': 'bg-rose-100 text-rose-700 border-rose-200',
+};
+const pidBadgeClass = (pid: string) =>
+  PID_BADGE_COLOR[pid] ?? 'bg-slate-100 text-slate-600 border-slate-200';
+
+function fmtDate(iso: string): string {
+  const d = new Date(iso);
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  const hh = String(d.getHours()).padStart(2, '0');
+  const mi = String(d.getMinutes()).padStart(2, '0');
+  return `${mm}/${dd} ${hh}:${mi}`;
+}
+
+// ─── 公開中ページ管理テーブル ─────────────────────────────────
+
+interface PublishedPageTableProps {
+  index: AisleIndexEntry[];
+  clientSlugInput: string;
+  onRefresh: () => void;
+  onUpdate: (entry: AisleIndexEntry) => Promise<void>;
+  onDelete: (entry: AisleIndexEntry) => Promise<void>;
+  isUpdatingSlug: string | null;
+  isDeletingSlug: string | null;
+}
+
+function PublishedPageTable({
+  index,
+  clientSlugInput,
+  onRefresh,
+  onUpdate,
+  onDelete,
+  isUpdatingSlug,
+  isDeletingSlug,
+}: PublishedPageTableProps) {
+  // 将来のP-IDフィルターはここに state を追加するだけで対応可能
+  // const [filterPId, setFilterPId] = useState<string | null>(null);
+  // const filtered = filterPId ? index.filter(e => e.promptTypeId === filterPId) : index;
+  const filtered = index; // 現状は全件表示
+
+  return (
+    <div className="border border-slate-200 rounded-xl overflow-hidden">
+      {/* ヘッダー */}
+      <div className="bg-slate-50 px-4 py-2.5 flex items-center justify-between border-b border-slate-200">
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-semibold text-slate-700">公開中のページ</span>
+          <span className="text-xs font-medium text-slate-400 bg-slate-200 rounded-full px-2 py-0.5">
+            {index.length}件
+          </span>
+        </div>
+        <button
+          onClick={onRefresh}
+          className="text-xs text-slate-400 hover:text-slate-600 flex items-center gap-1 transition-colors px-2 py-1 rounded hover:bg-slate-100"
+        >
+          🔃 一覧を更新
+        </button>
+      </div>
+
+      {/* 空状態 */}
+      {filtered.length === 0 && (
+        <div className="py-10 text-center">
+          <div className="text-3xl mb-2">📭</div>
+          <p className="text-sm font-medium text-slate-500">まだ公開中のページはありません</p>
+          <p className="text-xs text-slate-400 mt-1">「新規ページを追加」モードで生成してください</p>
+        </div>
+      )}
+
+      {/* テーブル */}
+      {filtered.length > 0 && (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm min-w-[680px]">
+            <thead>
+              <tr className="border-b border-slate-100 bg-white">
+                <th className="px-4 py-2.5 text-left text-xs font-semibold text-slate-500 w-28">P-ID</th>
+                <th className="px-4 py-2.5 text-left text-xs font-semibold text-slate-500">問い文</th>
+                <th className="px-4 py-2.5 text-left text-xs font-semibold text-slate-500 w-44">Slug</th>
+                <th className="px-4 py-2.5 text-left text-xs font-semibold text-slate-500 w-24">生成日時</th>
+                <th className="px-4 py-2.5 text-center text-xs font-semibold text-slate-500 w-36">操作</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {filtered.map(entry => {
+                const qUrl = `https://app.aisle-aio.ai/${clientSlugInput || '...'}/questions/${entry.questionSlug}`;
+                const isDeleting = isDeletingSlug === entry.questionSlug;
+                const isUpdating = isUpdatingSlug === entry.questionSlug;
+                const isBusy = isDeleting || isUpdating;
+                const label = AISLE_LABEL_MAP[entry.promptTypeId] ?? entry.promptTypeId;
+
+                return (
+                  <tr key={entry.questionSlug} className={`hover:bg-slate-50 transition-colors ${isBusy ? 'opacity-60' : ''}`}>
+                    {/* P-ID */}
+                    <td className="px-4 py-3 align-top">
+                      <div className={`inline-flex items-center px-2 py-0.5 rounded border text-[11px] font-bold ${pidBadgeClass(entry.promptTypeId)}`}>
+                        {entry.promptTypeId}
+                      </div>
+                      <div className="text-[10px] text-slate-400 mt-0.5 leading-tight">{label}</div>
+                    </td>
+
+                    {/* 問い文 */}
+                    <td className="px-4 py-3 align-top">
+                      <div
+                        className="text-sm text-slate-700 leading-snug line-clamp-2"
+                        title={entry.promptText}
+                      >
+                        {entry.promptText}
+                      </div>
+                    </td>
+
+                    {/* Slug */}
+                    <td className="px-4 py-3 align-top">
+                      <code className="text-[11px] text-slate-400 break-all leading-relaxed">
+                        /{clientSlugInput || '...'}/questions/<br />{entry.questionSlug}
+                      </code>
+                    </td>
+
+                    {/* 生成日時 */}
+                    <td className="px-4 py-3 align-top">
+                      <span className="text-xs text-slate-500 whitespace-nowrap">{fmtDate(entry.generatedAt)}</span>
+                    </td>
+
+                    {/* 操作 */}
+                    <td className="px-4 py-3 align-top">
+                      <div className="flex items-center gap-1.5 justify-center">
+                        {/* 開く */}
+                        <a
+                          href={qUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="px-2.5 py-1 text-xs text-indigo-600 border border-indigo-200 rounded-lg hover:bg-indigo-50 transition-colors whitespace-nowrap"
+                        >
+                          開く
+                        </a>
+
+                        {/* 更新 */}
+                        <button
+                          onClick={() => { void onUpdate(entry); }}
+                          disabled={isBusy}
+                          className="px-2.5 py-1 text-xs text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-100 transition-colors disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap"
+                        >
+                          {isUpdating ? '更新中…' : '更新'}
+                        </button>
+
+                        {/* 削除 */}
+                        <button
+                          onClick={() => { void onDelete(entry); }}
+                          disabled={isBusy}
+                          className="px-2.5 py-1 text-xs text-red-600 border border-red-200 rounded-lg hover:bg-red-50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap"
+                        >
+                          {isDeleting ? '削除中…' : '削除'}
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── clientSlug バリデーション ────────────────────────────────────
 const SLUG_VALID_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const validateClientSlug = (val: string): string => {
@@ -256,6 +426,7 @@ export function Phase4Implementation() {
   const [isGeneratingAislePage, setIsGeneratingAislePage] = useState(false);
   const [aisleError, setAisleError] = useState<string | null>(null);
   const [isDeletingAisleSlug, setIsDeletingAisleSlug] = useState<string | null>(null);
+  const [isUpdatingAisleSlug, setIsUpdatingAisleSlug] = useState<string | null>(null);
 
   // ── clientSlug（公開URL識別子） ──────────────────────────────────
   const [clientSlugInput, setClientSlugInput] = useState('');
@@ -358,6 +529,44 @@ export function Phase4Implementation() {
       setIsGeneratingAislePage(false);
     }
   }, [phase2Result, aisleMode, selectedUpdateSlugs, existingAisleIndex, fetchAisleIndex, clientSlugInput]);
+
+  // ── 問い別出現ページ 行単位更新ハンドラ ──────────────────────
+  const handleUpdateAislePage = useCallback(async (entry: AisleIndexEntry) => {
+    if (!phase2Result) return;
+    setAisleError(null);
+    setIsUpdatingAisleSlug(entry.questionSlug);
+    try {
+      const validPerPID = phase2Result.perPID.filter(p => !!p.promptTypeId);
+      const resp = await fetch('/api/page-generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          aisleMode: 'update',
+          targetPromptTypeIds: [],
+          targetQuestionSlugs: [entry.questionSlug],
+          companyName: phase2Result.companyName,
+          productCategory: phase2Result.productCategory,
+          clientSlug: clientSlugInput || undefined,
+          perPID: validPerPID.map(p => ({
+            pId: p.pId,
+            promptTypeId: p.promptTypeId,
+            promptTypeLabel: p.promptTypeLabel,
+            promptText: p.promptText,
+            mIdMapping: p.mIdMapping ?? [],
+            afterBun: p.afterBun,
+            eIdComplement: p.eIdComplement ?? [],
+          })),
+        }),
+      });
+      const json = await resp.json() as { ok: boolean; error?: string };
+      if (!json.ok) throw new Error(json.error ?? '更新に失敗しました');
+      await fetchAisleIndex(clientSlugInput || undefined);
+    } catch (e) {
+      setAisleError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setIsUpdatingAisleSlug(null);
+    }
+  }, [phase2Result, clientSlugInput, fetchAisleIndex]);
 
   // ── 問い別出現ページ 削除ハンドラ ────────────────────────────
   const handleDeleteAislePage = async (entry: AisleIndexEntry) => {
@@ -973,55 +1182,18 @@ export function Phase4Implementation() {
                       </>
                     ) : aisleMode === 'add' ? '🌐 問い別出現ページを生成する' : '🔄 選択したページを上書き更新する'}
                   </button>
-                  <button
-                    onClick={() => fetchAisleIndex(clientSlugInput || undefined)}
-                    className="px-3 py-2 rounded-lg border border-slate-200 text-sm text-slate-500 hover:border-slate-300 transition-colors"
-                  >
-                    🔃 一覧を更新
-                  </button>
                 </div>
 
-                {/* 公開中のページ一覧（削除ボタン付き） */}
-                {existingAisleIndex.length > 0 && (
-                  <div className="border border-slate-200 rounded-xl overflow-hidden">
-                    <div className="bg-slate-50 px-4 py-2.5 flex items-center justify-between border-b border-slate-200">
-                      <span className="text-sm font-semibold text-slate-700">公開中のページ（{existingAisleIndex.length}件）</span>
-                      <span className="text-xs text-slate-400">削除すると即座に非公開になります</span>
-                    </div>
-                    <div className="divide-y divide-slate-100">
-                      {existingAisleIndex.map(entry => {
-                        const qUrl = `https://app.aisle-aio.ai/${clientSlugInput || '...'}/questions/${entry.questionSlug}`;
-                        return (
-                          <div key={entry.questionSlug} className="flex items-center gap-3 px-4 py-3">
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center gap-1.5 mb-0.5">
-                                <span className="text-[10px] font-bold text-indigo-500 bg-indigo-50 border border-indigo-100 rounded px-1">{entry.promptTypeId}</span>
-                                <span className="text-xs text-slate-400">{entry.questionSlug}</span>
-                              </div>
-                              <div className="text-sm font-medium text-slate-700 truncate">{entry.promptText}</div>
-                              <code className="text-xs text-slate-400">/questions/{entry.questionSlug}</code>
-                            </div>
-                            <a
-                              href={qUrl}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="flex-shrink-0 px-2.5 py-1 text-xs text-indigo-600 hover:text-indigo-800 border border-indigo-200 rounded-lg hover:bg-indigo-50 transition-colors"
-                            >
-                              開く
-                            </a>
-                            <button
-                              onClick={() => { void handleDeleteAislePage(entry); }}
-                              disabled={isDeletingAisleSlug === entry.questionSlug}
-                              className="flex-shrink-0 px-2.5 py-1 text-xs text-red-600 hover:text-red-800 border border-red-200 rounded-lg hover:bg-red-50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                            >
-                              {isDeletingAisleSlug === entry.questionSlug ? '削除中...' : '削除'}
-                            </button>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
+                {/* 公開中ページ管理テーブル */}
+                <PublishedPageTable
+                  index={existingAisleIndex}
+                  clientSlugInput={clientSlugInput}
+                  onRefresh={() => { void fetchAisleIndex(clientSlugInput || undefined); }}
+                  onUpdate={handleUpdateAislePage}
+                  onDelete={handleDeleteAislePage}
+                  isUpdatingSlug={isUpdatingAisleSlug}
+                  isDeletingSlug={isDeletingAisleSlug}
+                />
 
                 {/* 結果表示 */}
                 {aisleResult && (
