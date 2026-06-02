@@ -269,6 +269,9 @@ function stripInternalIds(text: string): string {
   s = s.replace(/\b[A-Z]{1,3}-\d+\b/g, '');
   // 空括弧を除去
   s = s.replace(/[（(]\s*[）)]/g, '');
+  // ID除去後に先頭に残る短い孤立フラグメント（例："適切な位置に配置。"）を除去
+  // 先頭から最初の句点までが20字以内なら孤立断片とみなして削除する
+  s = s.replace(/^[^。\n]{1,20}。\s*/, '');
   // 余分な空白・句読点を整理
   s = s.replace(/[ \t]+/g, ' ').replace(/^[,、。\s]+|[,、。\s]+$/g, '').trim();
   return s;
@@ -311,8 +314,7 @@ function buildMeaningContext(perPID: Phase2PerPID | undefined): string {
     const role = m.semanticRole?.trim();
     lines.push(role ? `**${m.name}**：${role}` : `**${m.name}**`);
   });
-  const comment = perPID.connectionComment?.trim();
-  if (comment) { lines.push(''); lines.push(comment); }
+  // connectionComment は内部設計コメント（P-ID/K-ID 等を含む）のため RefBase には出力しない
   return lines.length > 0 ? lines.join('\n') : '（意味接点データなし）';
 }
 
