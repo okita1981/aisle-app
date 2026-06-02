@@ -1,6 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { kv } from '@vercel/kv';
-import { generateParentHtml, type AislePageIndexEntry } from './page-generate.js';
+import { generateParentHtml, generateQuestionParentHtml, type AislePageIndexEntry, type QuestionPageIndexEntry } from './page-generate.js';
 
 function readBody(req: IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -12,9 +12,13 @@ function readBody(req: IncomingMessage): Promise<string> {
 }
 
 interface DeleteRequest {
-  slug: string;
-  clientSlug?: string;
+  // ── 旧P-IDページ削除（後方互換） ──────────────────────────────────
+  slug?: string;
   promptSlug?: string;
+  // ── 新問いページ削除 ──────────────────────────────────────────────
+  questionSlug?: string;
+  // ── 共通 ──────────────────────────────────────────────────────────
+  clientSlug?: string;
   companyName?: string;
   productCategory?: string;
   deleteFromIndex?: boolean;
@@ -30,6 +34,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     const body = JSON.parse(await readBody(req)) as DeleteRequest;
     const {
       slug,
+      questionSlug,
       clientSlug,
       promptSlug,
       companyName = '',
@@ -38,21 +43,42 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       regenerateParent = false,
     } = body;
 
-    if (!slug) {
-      res.statusCode = 400;
-      res.setHeader('Content-Type', 'application/json');
-      res.end(JSON.stringify({ ok: false, error: 'slug is required' }));
-      return;
-    }
-
-    // 1. KV本文削除
-    await kv.del(`page:${slug}`);
-
     const now = new Date().toISOString();
     let indexUpdated = false;
     let parentRegenerated = false;
 
-    // 2. インデックス更新
+    // ── 問い単位ページの削除（新構造） ───────────────────────────────
+    if (questionSlug && clientSlug) {
+      await kv.del(`page:question:${clientSlug}/${questionSlug}`);
+
+      if (deleteFromIndex) {
+        const existingQIdx = await kv.get<QuestionPageIndexEntry[]>(`page-question-index:${clientSlug}`) ?? [];
+        const updatedQIdx = existingQIdx.filter(e => e.questionSlug !== questionSlug);
+        await kv.set(`page-question-index:${clientSlug}`, updatedQIdx);
+        indexUpdated = true;
+
+        if (regenerateParent && companyName) {
+          const parentHtml = generateQuestionParentHtml(updatedQIdx, now, clientSlug, companyName, productCategory);
+          await kv.set(`page:${clientSlug}`, parentHtml);
+          parentRegenerated = true;
+        }
+      }
+
+      res.setHeader('Content-Type', 'application/json');
+      res.end(JSON.stringify({ ok: true, questionSlug, indexUpdated, parentRegenerated }));
+      return;
+    }
+
+    // ── 旧P-IDページの削除（後方互換） ──────────────────────────────
+    if (!slug) {
+      res.statusCode = 400;
+      res.setHeader('Content-Type', 'application/json');
+      res.end(JSON.stringify({ ok: false, error: 'slug or questionSlug is required' }));
+      return;
+    }
+
+    await kv.del(`page:${slug}`);
+
     if (deleteFromIndex && clientSlug) {
       const existingIndex = await kv.get<AislePageIndexEntry[]>(`page-index:${clientSlug}`) ?? [];
       const updatedIndex = existingIndex.filter(e =>
@@ -61,7 +87,6 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       await kv.set(`page-index:${clientSlug}`, updatedIndex);
       indexUpdated = true;
 
-      // 3. 親ページ再生成（companyName が必要）
       if (regenerateParent && companyName) {
         const parentHtml = generateParentHtml(updatedIndex, now, clientSlug, companyName, productCategory);
         await kv.set(`page:${clientSlug}`, parentHtml);

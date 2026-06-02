@@ -177,23 +177,21 @@ function exportReport(result: Phase4Result) {
 
 // ─── Aisleページ管理 定数・型 ──────────────────────────────────
 
+/** 問い単位ページインデックスエントリ（新構造） */
 interface AisleIndexEntry {
-  slug: string;
-  promptTypeId: string;
-  promptSlug: string;
-  label: string;
+  questionSlug: string;    // "recommendation-001"
+  promptTypeId: string;    // "P-01"
+  promptTypeSlug: string;  // "recommendation"
+  promptText: string;      // 問いの全文
+  sessionKey?: string;
   generatedAt: string;
-  promptText?: string;
+  // 後方互換フィールド（旧構造が混在する場合）
+  slug?: string;
+  promptSlug?: string;
+  label?: string;
 }
 
-const AISLE_PROMPT_SLUGS: Record<string, string> = {
-  'P-01': 'recommendation',
-  'P-02': 'comparison',
-  'P-03': 'ranking',
-  'P-04': 'solution',
-  'P-05': 'citation',
-  'P-06': 'why-recommended',
-};
+// AISLE_PROMPT_SLUGS は question-centric 移行後は使用しない（後方互換のみ）
 
 const AISLE_LABEL_MAP: Record<string, string> = {
   'P-01': '選定・相談型',
@@ -279,10 +277,12 @@ export function Phase4Implementation() {
     }
   }, [phase2Result?.companyName]);
 
-  // ── fetchAisleIndex（明示的 clientSlug パラメータ） ──────────────
+  // ── fetchAisleIndex: 問い単位インデックス（新構造）を取得 ─────────
   const fetchAisleIndex = useCallback(async (clientSlug?: string) => {
     try {
-      const qs = clientSlug ? `?clientSlug=${encodeURIComponent(clientSlug)}` : '';
+      const qs = clientSlug
+        ? `?clientSlug=${encodeURIComponent(clientSlug)}&type=questions`
+        : '?type=questions';
       const resp = await fetch(`/api/page-generate${qs}`);
       const json = await resp.json() as { ok: boolean; index: AisleIndexEntry[] };
       if (json.ok) setExistingAisleIndex(json.index ?? []);
@@ -306,14 +306,16 @@ export function Phase4Implementation() {
         validPerPID.map(p => p.promptTypeId!.split('-').slice(0, 2).join('-')),
       )];
 
-      const targetPromptTypeIds = aisleMode === 'add'
-        ? baseIds
-        : [...selectedUpdateSlugs].map(slug => {
-            const entry = existingAisleIndex.find(e => e.promptSlug === slug);
-            return entry?.promptTypeId ?? '';
-          }).filter(Boolean);
+      // add: 全P-IDを対象 / update: 選択された questionSlug を対象
+      const targetPromptTypeIds = aisleMode === 'add' ? baseIds : [];
+      const targetQuestionSlugs = aisleMode === 'update' ? [...selectedUpdateSlugs] : [];
 
-      if (targetPromptTypeIds.length === 0) throw new Error('対象となる問いタイプがありません');
+      if (aisleMode === 'add' && targetPromptTypeIds.length === 0) {
+        throw new Error('対象となる問いタイプがありません');
+      }
+      if (aisleMode === 'update' && targetQuestionSlugs.length === 0) {
+        throw new Error('更新対象のページが選択されていません');
+      }
 
       const resp = await fetch('/api/page-generate', {
         method: 'POST',
@@ -321,6 +323,7 @@ export function Phase4Implementation() {
         body: JSON.stringify({
           aisleMode,
           targetPromptTypeIds,
+          targetQuestionSlugs,
           companyName: phase2Result.companyName,
           productCategory: phase2Result.productCategory,
           clientSlug: clientSlugInput || undefined,
@@ -359,20 +362,20 @@ export function Phase4Implementation() {
   // ── 問い別出現ページ 削除ハンドラ ────────────────────────────
   const handleDeleteAislePage = async (entry: AisleIndexEntry) => {
     setAisleError(null);
+    const pageUrl = `/${clientSlugInput || '...'}/questions/${entry.questionSlug}`;
     const confirmed = window.confirm(
-      `この問い別出現ページを削除しますか？\n公開URLからアクセスできなくなります。この操作は元に戻せません。\n\n対象URL: /${entry.slug}`,
+      `この問い別出現ページを削除しますか？\n公開URLからアクセスできなくなります。この操作は元に戻せません。\n\n対象URL: ${pageUrl}`,
     );
     if (!confirmed) return;
 
-    setIsDeletingAisleSlug(entry.promptSlug);
+    setIsDeletingAisleSlug(entry.questionSlug);
     try {
       const resp = await fetch('/api/page-delete', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          slug: entry.slug,
+          questionSlug: entry.questionSlug,
           clientSlug: clientSlugInput || undefined,
-          promptSlug: entry.promptSlug,
           companyName: phase2Result?.companyName ?? '',
           productCategory: phase2Result?.productCategory ?? '',
           deleteFromIndex: true,
@@ -640,15 +643,6 @@ export function Phase4Implementation() {
   const lowReachCount = phase3Result?.matrixReport.filter(r => r.reachabilityScore === '低').length ?? 0;
   const midReachCount = phase3Result?.matrixReport.filter(r => r.reachabilityScore === '中').length ?? 0;
 
-  // Aisleページ管理: computed
-  const aisleAvailableBaseIds = useMemo(() => {
-    const valid = phase2Result?.perPID.filter(p => !!p.promptTypeId) ?? [];
-    return [...new Set(valid.map(p => p.promptTypeId!.split('-').slice(0, 2).join('-')))];
-  }, [phase2Result]);
-  const existingSlugsSet = useMemo(
-    () => new Set(existingAisleIndex.map(e => e.promptSlug)),
-    [existingAisleIndex],
-  );
 
   return (
     <div className="space-y-5">
@@ -898,29 +892,23 @@ export function Phase4Implementation() {
                   </div>
                 </div>
 
-                {/* addモード: 新規/スキップ表示 */}
+                {/* addモード: 生成対象の問いを表示（同P-IDでも全件追加・スキップなし） */}
                 {aisleMode === 'add' && (
                   <div>
-                    <div className="text-sm font-medium text-slate-700 mb-2">生成対象の問いタイプ</div>
-                    {aisleAvailableBaseIds.length === 0 ? (
+                    <div className="text-sm font-medium text-slate-700 mb-2">生成対象の問い（全件を個別ページとして追加）</div>
+                    {phase2Result?.perPID.filter(p => !!p.promptTypeId).length === 0 ? (
                       <div className="text-sm text-slate-400">設計データに問いタイプが含まれていません</div>
                     ) : (
-                      <div className="flex flex-wrap gap-2">
-                        {aisleAvailableBaseIds.map(baseId => {
-                          const slug = AISLE_PROMPT_SLUGS[baseId];
-                          const isExisting = !!slug && existingSlugsSet.has(slug);
+                      <div className="space-y-1.5">
+                        {phase2Result?.perPID.filter(p => !!p.promptTypeId).map((p, i) => {
+                          const baseId = p.promptTypeId!.split('-').slice(0, 2).join('-');
                           const label = AISLE_LABEL_MAP[baseId] ?? baseId;
                           return (
-                            <div key={baseId} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border ${
-                              isExisting
-                                ? 'bg-slate-100 border-slate-200 text-slate-400'
-                                : 'bg-indigo-50 border-indigo-200 text-indigo-700'
-                            }`}>
-                              <span className="font-bold">{baseId}</span>
-                              <span className="font-normal">{label}</span>
-                              <span className={`ml-1 ${isExisting ? 'text-slate-400' : 'text-indigo-500'}`}>
-                                {isExisting ? '（スキップ）' : '（新規）'}
-                              </span>
+                            <div key={i} className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-indigo-50 border border-indigo-100 text-xs">
+                              <span className="font-bold text-indigo-600">{baseId}</span>
+                              <span className="text-slate-400">{label}</span>
+                              <span className="flex-1 text-slate-600 truncate">{p.promptText}</span>
+                              <span className="text-indigo-500 font-medium">（新規）</span>
                             </div>
                           );
                         })}
@@ -929,32 +917,32 @@ export function Phase4Implementation() {
                   </div>
                 )}
 
-                {/* updateモード: 既存ページ選択 */}
+                {/* updateモード: questionSlug 単位で既存ページを選択 */}
                 {aisleMode === 'update' && (
                   <div>
                     <div className="text-sm font-medium text-slate-700 mb-2">更新するページを選択</div>
                     {existingAisleIndex.length === 0 ? (
                       <div className="text-sm text-slate-400">既存の問い別AIページがありません（「追加」モードで先に生成してください）</div>
                     ) : (
-                      <div className="flex flex-wrap gap-2">
+                      <div className="space-y-1.5">
                         {existingAisleIndex.map(entry => {
-                          const isChecked = selectedUpdateSlugs.has(entry.promptSlug);
+                          const isChecked = selectedUpdateSlugs.has(entry.questionSlug);
                           return (
-                            <label key={entry.promptSlug} className={`flex items-center gap-2 px-3 py-2 rounded-lg border-2 cursor-pointer transition-all ${
+                            <label key={entry.questionSlug} className={`flex items-center gap-2 px-3 py-2 rounded-lg border-2 cursor-pointer transition-all ${
                               isChecked ? 'border-indigo-500 bg-indigo-50' : 'border-slate-200 hover:border-slate-300'
                             }`}>
                               <input type="checkbox" className="accent-indigo-600" checked={isChecked}
                                 onChange={() => {
                                   setSelectedUpdateSlugs(prev => {
                                     const next = new Set(prev);
-                                    next.has(entry.promptSlug) ? next.delete(entry.promptSlug) : next.add(entry.promptSlug);
+                                    next.has(entry.questionSlug) ? next.delete(entry.questionSlug) : next.add(entry.questionSlug);
                                     return next;
                                   });
                                 }}
                               />
-                              <div>
-                                <div className="text-xs font-semibold text-slate-700">{entry.label}</div>
-                                <div className="text-xs text-slate-400">{entry.promptTypeId} / /{entry.slug}</div>
+                              <div className="flex-1 min-w-0">
+                                <div className="text-xs font-semibold text-slate-700 truncate">{entry.promptText}</div>
+                                <div className="text-xs text-slate-400">{entry.promptTypeId} · /{clientSlugInput}/questions/{entry.questionSlug}</div>
                               </div>
                             </label>
                           );
@@ -1001,29 +989,36 @@ export function Phase4Implementation() {
                       <span className="text-xs text-slate-400">削除すると即座に非公開になります</span>
                     </div>
                     <div className="divide-y divide-slate-100">
-                      {existingAisleIndex.map(entry => (
-                        <div key={entry.promptSlug} className="flex items-center gap-3 px-4 py-3">
-                          <div className="flex-1 min-w-0">
-                            <div className="text-sm font-medium text-slate-700 truncate">{entry.promptText ?? entry.label}</div>
-                            <code className="text-xs text-slate-400">/{entry.slug}</code>
+                      {existingAisleIndex.map(entry => {
+                        const qUrl = `https://app.aisle-aio.ai/${clientSlugInput || '...'}/questions/${entry.questionSlug}`;
+                        return (
+                          <div key={entry.questionSlug} className="flex items-center gap-3 px-4 py-3">
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-1.5 mb-0.5">
+                                <span className="text-[10px] font-bold text-indigo-500 bg-indigo-50 border border-indigo-100 rounded px-1">{entry.promptTypeId}</span>
+                                <span className="text-xs text-slate-400">{entry.questionSlug}</span>
+                              </div>
+                              <div className="text-sm font-medium text-slate-700 truncate">{entry.promptText}</div>
+                              <code className="text-xs text-slate-400">/questions/{entry.questionSlug}</code>
+                            </div>
+                            <a
+                              href={qUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="flex-shrink-0 px-2.5 py-1 text-xs text-indigo-600 hover:text-indigo-800 border border-indigo-200 rounded-lg hover:bg-indigo-50 transition-colors"
+                            >
+                              開く
+                            </a>
+                            <button
+                              onClick={() => { void handleDeleteAislePage(entry); }}
+                              disabled={isDeletingAisleSlug === entry.questionSlug}
+                              className="flex-shrink-0 px-2.5 py-1 text-xs text-red-600 hover:text-red-800 border border-red-200 rounded-lg hover:bg-red-50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                            >
+                              {isDeletingAisleSlug === entry.questionSlug ? '削除中...' : '削除'}
+                            </button>
                           </div>
-                          <a
-                            href={`https://app.aisle-aio.ai/${entry.slug}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="flex-shrink-0 px-2.5 py-1 text-xs text-indigo-600 hover:text-indigo-800 border border-indigo-200 rounded-lg hover:bg-indigo-50 transition-colors"
-                          >
-                            開く
-                          </a>
-                          <button
-                            onClick={() => { void handleDeleteAislePage(entry); }}
-                            disabled={isDeletingAisleSlug === entry.promptSlug}
-                            className="flex-shrink-0 px-2.5 py-1 text-xs text-red-600 hover:text-red-800 border border-red-200 rounded-lg hover:bg-red-50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                          >
-                            {isDeletingAisleSlug === entry.promptSlug ? '削除中...' : '削除'}
-                          </button>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   </div>
                 )}

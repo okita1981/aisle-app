@@ -518,6 +518,16 @@ export interface AislePageResult {
   updated: string[];
 }
 
+/** 問い単位の公開ページインデックスエントリ */
+export interface QuestionPageIndexEntry {
+  questionSlug: string;       // "recommendation-001"（{promptTypeSlug}-{連番}）
+  promptTypeId: string;       // "P-01"
+  promptTypeSlug: string;     // "recommendation"
+  promptText: string;         // 問いの全文
+  sessionKey?: string;        // 生成元セッションキー
+  generatedAt: string;        // ISO8601
+}
+
 /** 企業AIプロフィールページの生成結果 */
 export interface GeneratedPage {
   slug: string;
