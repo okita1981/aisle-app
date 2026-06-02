@@ -30,19 +30,12 @@ interface Phase0Data {
 interface LogEntry { promptId?: string; appeared?: boolean; aiOutput?: string; eIds?: string[]; }
 
 interface AppearanceRateRow { promptId: string; rate: string; appearedCount: number; trialCount: number; }
-interface EIdRow {
-  pId: string;
-  competitorEntity?: string;
-  winningFactor?: string;
-  gapToAisle?: string;
-  winningEId?: string;
-  implementationDirection?: string;
-}
 interface StructureSummaryRow { promptId: string; rate: string; comment?: string; }
 
 interface Phase1Result {
   sub1?: { appearanceRates?: AppearanceRateRow[] };
-  sub3?: { eIdMatrix?: EIdRow[]; structureSummary?: StructureSummaryRow[] };
+  sub3?: { structureSummary?: StructureSummaryRow[] };
+  // ※ eIdMatrix（gapToAisle 含む）は RefBase では使用しない
 }
 
 interface MIdMappingRow { name: string; semanticRole?: string; }
@@ -111,12 +104,18 @@ interface SessionData {
 
 // ── RefBase 構造化JSON型 ──────────────────────────────────────────────
 
+export interface QuestionPerspective {
+  label: string;          // 評価観点名（意味接点名など）
+  description: string;    // この問いにおける業界の評価観点説明（中立的・AI参照向け）
+  entityConnection: string; // 対象Entityがこの観点にどう接続するか
+}
+
 export interface RefBaseData {
   question: string;
   entitySummary: string;
   meaningContext: string;
   questionFit: string;
-  comparisonAxis: string;
+  questionPerspectives: QuestionPerspective[];
   evidence: { type: string; url: string; description?: string }[];
   faq: { q: string; a: string }[];
   relatedReferences: { label: string; url: string }[];
@@ -207,43 +206,67 @@ function buildQuestionFit(
   return lines.length > 0 ? lines.join('\n') : '（評価データなし）';
 }
 
-function buildComparisonAxis(
+/**
+ * Question Perspectives 生成。
+ * この問いにおける業界の評価観点を中立的に列挙し、対象Entityの接続軸を記述する。
+ * gapToAisle・欠落情報は一切含めない。
+ *
+ * 生成元：
+ *   - mIdMapping[].name + semanticRole（主軸）
+ *   - connectionComment / portfolioIntro.intentSummary（entityConnection）
+ *   - competitorAnalysis.entityRanking[].whyItAppeared / dominantStructure（補完）
+ */
+function buildQuestionPerspectives(
+  perPID: Phase2PerPID | undefined,
   competitors: CompetitorEntityRow[],
-  eIdRows: EIdRow[],
-  competitorSummary: string | undefined,
-): string {
-  const lines: string[] = [];
+): QuestionPerspective[] {
+  const perspectives: QuestionPerspective[] = [];
 
-  // 競合出現エンティティ（上位3件）
-  const topCompetitors = competitors.slice(0, 3);
-  if (topCompetitors.length > 0) {
-    lines.push('**AIの回答に登場した競合エンティティ（上位）**');
-    topCompetitors.forEach(c => {
-      const why = c.whyItAppeared?.trim() ?? c.dominantStructure?.trim() ?? '—';
-      lines.push(`- **${c.entity ?? '—'}**：${why}`);
+  // entityConnection の共通ベース（設計意図・接続コメント）
+  const connectionBase =
+    perPID?.connectionComment?.trim() ||
+    perPID?.portfolioIntro?.intentSummary?.trim() ||
+    '';
+
+  // ── 主軸：mIdMapping → 意味接点ごとに評価観点を生成 ─────────────
+  const mIdMappings = perPID?.mIdMapping ?? [];
+  mIdMappings.slice(0, 4).forEach((m, i) => {
+    const role = m.semanticRole?.trim();
+    if (!role) return;
+
+    // entityConnection：最初の項目はconnectionBase全体、以降はM-ID文脈で派生
+    const entityConnection =
+      i === 0 && connectionBase
+        ? connectionBase
+        : `対象Entityは、${m.name}の観点からこの問いへの接続を設計しています。`;
+
+    perspectives.push({
+      label: m.name,
+      description: role,  // semanticRole をそのまま評価観点説明として使用
+      entityConnection,
     });
+  });
+
+  // ── 補完：mIdMappingが少ない場合、competitor whyItAppeared で補う ─
+  if (perspectives.length < 2) {
+    competitors
+      .filter(c => (c.whyItAppeared || c.dominantStructure) && c.entity)
+      .slice(0, 2)
+      .forEach(c => {
+        const why = c.whyItAppeared?.trim() || '';
+        const structure = c.dominantStructure?.trim() || '';
+        if (!why && !structure) return;
+        perspectives.push({
+          label: structure || '選定評価観点',
+          description: why || structure,
+          entityConnection:
+            connectionBase ||
+            '対象Entityは、この評価観点への意味接点を整備しています。',
+        });
+      });
   }
 
-  // 自社の現状ギャップ（eIdMatrixから、pId一致行）
-  const gapTexts = [...new Set(
-    eIdRows
-      .map(r => r.gapToAisle?.trim())
-      .filter((g): g is string => !!g && g !== '—'),
-  )].slice(0, 2);
-
-  if (gapTexts.length > 0) {
-    lines.push('');
-    lines.push('**自社の現状ギャップ（暫定）**');
-    gapTexts.forEach(g => lines.push(`- ${g}`));
-  }
-
-  // competitorAnalysis のサマリーがあれば追記
-  if (competitorSummary) {
-    lines.push('');
-    lines.push(competitorSummary);
-  }
-
-  return lines.length > 0 ? lines.join('\n') : '（競合データなし）';
+  return perspectives;
 }
 
 function buildEvidence(externalUrls: ExternalUrlEntry[]): RefBaseData['evidence'] {
@@ -314,9 +337,19 @@ function buildMarkdown(data: RefBaseData): string {
   lines.push(data.questionFit || '—');
   lines.push('');
 
-  lines.push('## Comparison Axis');
-  lines.push(data.comparisonAxis || '—');
-  lines.push('');
+  lines.push('## Question Perspectives');
+  if (data.questionPerspectives.length > 0) {
+    data.questionPerspectives.forEach(p => {
+      lines.push(`### ${p.label}`);
+      lines.push(p.description);
+      lines.push('');
+      lines.push(`> ${p.entityConnection}`);
+      lines.push('');
+    });
+  } else {
+    lines.push('（評価観点データなし）');
+    lines.push('');
+  }
 
   lines.push('## Evidence');
   if (data.evidence.length > 0) {
@@ -410,16 +443,13 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     const rateRow = session.phase1Result?.sub1?.appearanceRates?.find(
       r => r.promptId === targetPId,
     );
-    const eIdRows = (session.phase1Result?.sub3?.eIdMatrix ?? []).filter(
-      r => r.pId === targetPId,
-    );
+    // ※ eIdMatrix（gapToAisle を含む）は RefBase 出力には使用しない
 
     // ── 競合データ取得（entityByPId > entityRanking） ──────────────
     const competitors: CompetitorEntityRow[] =
       session.competitorAnalysis?.entityByPId?.[targetPId] ??
       session.competitorAnalysis?.entityRanking?.slice(0, 5) ??
       [];
-    const competitorSummary = session.competitorAnalysis?.summariesByPId?.[targetPId];
 
     // ── externalUrls ────────────────────────────────────────────────
     const externalUrls: ExternalUrlEntry[] = session.externalUrls ?? [];
@@ -430,7 +460,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       entitySummary:     buildEntitySummary(session, perPID),
       meaningContext:    buildMeaningContext(perPID),
       questionFit:       buildQuestionFit(rateRow, perPID, session.phase3Result),
-      comparisonAxis:    buildComparisonAxis(competitors, eIdRows, competitorSummary),
+      questionPerspectives: buildQuestionPerspectives(perPID, competitors),
       evidence:          buildEvidence(externalUrls),
       faq:               buildFaq(perPID),
       relatedReferences: buildRelatedReferences(externalUrls),
