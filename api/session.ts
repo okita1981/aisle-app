@@ -254,21 +254,54 @@ async function handleLoad(query: Record<string, string | string[] | undefined>, 
 // GET &preview=1: RefBase プレビュー生成
 // ─────────────────────────────────────────────────────────────────────────────
 
+/**
+ * 設計内部ID（P-ID / K-ID / M-ID / E-ID / A-ID / AP-ID / T-ID / C-ID / SB-ID）と
+ * その付随する設計記述をテキストから除去し、公開可能な自然文に変換する。
+ */
+function stripInternalIds(text: string): string {
+  let s = text;
+  // "M-06→M-07→M-04" のような連続IDシーケンスを除去
+  s = s.replace(/(?:[A-Z]{1,3}-\d+[→・])+[A-Z]{1,3}-\d+/g, '');
+  // "P-01の必須順（...）を維持し、" / "K-01対策の" などの定型句を除去
+  s = s.replace(/[A-Z]{1,3}-\d+[のを対策補正補完必須順序]{0,5}[（(][^）)]*[）)][^、。\n]{0,20}[、。]?\s*/g, '');
+  s = s.replace(/[A-Z]{1,3}-\d+[のを対策補正]{0,4}\s*/g, '');
+  // 残余の単体ID（P-01、K-01 等）を除去
+  s = s.replace(/\b[A-Z]{1,3}-\d+\b/g, '');
+  // 空括弧を除去
+  s = s.replace(/[（(]\s*[）)]/g, '');
+  // 余分な空白・句読点を整理
+  s = s.replace(/[ \t]+/g, ' ').replace(/^[,、。\s]+|[,、。\s]+$/g, '').trim();
+  return s;
+}
+
 function buildEntitySummary(s: SessionData, perPID: Phase2PerPID | undefined): string {
   const company = s.phase2Result?.companyName ?? s.phase0Data?.companyName ?? '';
   const category = s.phase2Result?.productCategory ?? s.phase0Data?.category ?? '';
   const desc = (s.phase2Result?.productDescription ?? '').trim();
 
-  let base = company ? `${company}は、${category}の会社です。` : category;
+  // productDescription が存在する場合はそれを優先して使用（"会社です"テンプレートを使わない）
   if (desc) {
-    base += `\n\n${desc}`;
-  } else if (perPID?.portfolioIntro?.intentSummary) {
-    base += `\n\n${perPID.portfolioIntro.intentSummary}`;
-  } else if (perPID?.afterBun && perPID.afterBun.length > 0) {
-    const firstText = perPID.afterBun[0].afterText.trim();
-    if (firstText) base += `\n\n${firstText}`;
+    // desc が既に会社名を含んでいればそのまま返す
+    const shortName = company.replace(/株式会社|合同会社|有限会社/g, '').trim();
+    return (shortName && !desc.includes(shortName))
+      ? `${company}は、${desc}`
+      : desc;
   }
-  return base.trim();
+
+  // portfolioIntro.intentSummary を次の候補として使用
+  const intentSummary = perPID?.portfolioIntro?.intentSummary?.trim();
+  if (intentSummary) {
+    return company ? `${company}は、${intentSummary}` : intentSummary;
+  }
+
+  // afterBun の先頭1〜2文を使用
+  if (perPID?.afterBun && perPID.afterBun.length > 0) {
+    const texts = perPID.afterBun.slice(0, 2).map(b => b.afterText.trim()).filter(Boolean);
+    if (texts.length > 0) return texts.join('\n\n');
+  }
+
+  // 最終フォールバック
+  return company ? `${company}は、${category}の会社です。` : category;
 }
 
 function buildMeaningContext(perPID: Phase2PerPID | undefined): string {
@@ -286,12 +319,14 @@ function buildMeaningContext(perPID: Phase2PerPID | undefined): string {
 function buildQuestionFit(
   rateRow: AppearanceRateRow | undefined,
   perPID: Phase2PerPID | undefined,
-  phase3: Phase3Result | null | undefined,
 ): string {
+  // ※ phase3.overallSummary と appearanceSummary.overallImpression は診断語を含むため除外
   const lines: string[] = [];
+
   if (rateRow) {
     lines.push(`**実測AI言及率：${rateRow.rate}**（${rateRow.appearedCount}/${rateRow.trialCount} 試行）`);
   }
+
   if (perPID?.appearanceEval && perPID.appearanceEval.length > 0) {
     const scores = perPID.appearanceEval.map(e => e.reachability).filter(Boolean);
     const high = scores.filter(s => s === '◎' || s === '高').length;
@@ -299,10 +334,12 @@ function buildQuestionFit(
     const low  = scores.filter(s => s === '△' || s === '低' || s === '×').length;
     if (scores.length > 0) {
       lines.push(`**AI言及可能性（設計評価）**：高 ${high}件 / 中 ${mid}件 / 低 ${low}件（全 ${scores.length}件）`);
+      // 数値のみから中立的な一文を自動生成
+      const dominant = high >= mid && high >= low ? '高い' : mid >= low ? '中程度' : '検討段階';
+      lines.push(`この問いに対するAI言及の可能性は${dominant}と評価されています。`);
     }
   }
-  const summary = phase3?.overallSummary?.trim() ?? perPID?.appearanceSummary?.overallImpression?.trim();
-  if (summary) { lines.push(''); lines.push(summary); }
+
   return lines.length > 0 ? lines.join('\n') : '（評価データなし）';
 }
 
@@ -311,23 +348,30 @@ function buildQuestionPerspectives(
   competitors: CompetitorEntityRow[],
 ): QuestionPerspective[] {
   const perspectives: QuestionPerspective[] = [];
-  const connectionBase =
+
+  // connectionComment / intentSummary から内部IDを除去してentityConnectionベースを作成
+  const rawConnection =
     perPID?.connectionComment?.trim() ||
     perPID?.portfolioIntro?.intentSummary?.trim() ||
     '';
+  const connectionBase = stripInternalIds(rawConnection);
 
   (perPID?.mIdMapping ?? []).slice(0, 4).forEach((m, i) => {
     const role = m.semanticRole?.trim();
     if (!role) return;
-    perspectives.push({
-      label: m.name,
-      description: role,
-      entityConnection: i === 0 && connectionBase
+
+    // entityConnection：
+    //   最初の項目 → stripInternalIds 済みの connectionBase を使用
+    //   2番目以降 → M-ID名を使った中立的な定型文
+    const entityConnection =
+      i === 0 && connectionBase
         ? connectionBase
-        : `対象Entityは、${m.name}の観点からこの問いへの接続を設計しています。`,
-    });
+        : `対象Entityは、${m.name}の観点からこの問いへの接続を設計しています。`;
+
+    perspectives.push({ label: m.name, description: role, entityConnection });
   });
 
+  // mIdMappingが少ない場合、competitor whyItAppeared で補完
   if (perspectives.length < 2) {
     competitors
       .filter(c => (c.whyItAppeared || c.dominantStructure) && c.entity)
@@ -469,7 +513,7 @@ async function handlePreview(
     question:             perPID?.promptText ?? '（問いデータなし）',
     entitySummary:        buildEntitySummary(session, perPID),
     meaningContext:       buildMeaningContext(perPID),
-    questionFit:          buildQuestionFit(rateRow, perPID, session.phase3Result),
+    questionFit:          buildQuestionFit(rateRow, perPID),
     questionPerspectives: buildQuestionPerspectives(perPID, competitors),
     evidence: externalUrls.filter(u => u.url.trim()).map(u => ({
       type: u.type,
