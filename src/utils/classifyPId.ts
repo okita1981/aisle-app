@@ -39,7 +39,7 @@ function detectPIdByKeyword(promptText: string): string | null {
 async function detectPIdByClaude(
   promptText: string,
 ): Promise<{ primary: string; secondary: string[]; reason: string }> {
-  const resp = await fetch('/api/classify-pid', {
+  const resp = await fetch('/api/classify', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ promptText }),

@@ -220,7 +220,7 @@ export function Report() {
     setSavedKey(null);
     setSaveError(null);
     try {
-      const resp = await fetch('/api/session-save', {
+      const resp = await fetch('/api/session', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
