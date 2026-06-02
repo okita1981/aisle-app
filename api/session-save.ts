@@ -39,6 +39,12 @@ export interface SessionIndexEntry {
   hasPhase4: boolean;
 }
 
+// ── 外部URLエントリ型（ExternalUrlItem と同一構造） ──────────────────
+export interface ExternalUrlEntry {
+  type: string;  // 例: "note" | "LinkedIn" | "公式サイト" | "メディア記事"
+  url: string;
+}
+
 // ── リクエストボディ型 ───────────────────────────────────────────────
 interface SaveRequest {
   /** フロントから明示指定がある場合に優先。なければ phase0Data.companyName から自動生成 */
@@ -50,6 +56,8 @@ interface SaveRequest {
   phase2Result?: unknown;
   phase3Result?: unknown;
   phase4Result?: unknown;
+  /** AI向け根拠補完リンク（Note / LinkedIn / 公式サイト等）。RefBase Evidence / Related References に使用 */
+  externalUrls?: ExternalUrlEntry[];
 }
 
 export default async function handler(req: IncomingMessage, res: ServerResponse): Promise<void> {
@@ -83,6 +91,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       phase2Result:       body.phase2Result       ?? null,
       phase3Result:       body.phase3Result       ?? null,
       phase4Result:       body.phase4Result       ?? null,
+      externalUrls:       (body.externalUrls ?? []).filter(u => u.url.trim() !== ''),
     };
 
     await kv.set(sessionKey, sessionData);

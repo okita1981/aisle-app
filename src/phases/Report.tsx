@@ -207,7 +207,7 @@ function RoadmapCard({
 // ─── メインレポートコンポーネント ──────────────────────────────
 
 export function Report() {
-  const { phase1Result, phase2Result, phase3Result, phase4Result, phase0Data, logEntries, competitorAnalysis } = useAppStore();
+  const { phase1Result, phase2Result, phase3Result, phase4Result, phase0Data, logEntries, competitorAnalysis, externalUrls } = useAppStore();
 
   // ── セッション保存 ─────────────────────────────────────────────
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'done' | 'error'>('idle');
@@ -231,6 +231,7 @@ export function Report() {
           phase2Result,
           phase3Result,
           phase4Result,
+          externalUrls,
         }),
       });
       const json = await resp.json() as { ok: boolean; sessionKey?: string; error?: string };
@@ -241,7 +242,7 @@ export function Report() {
       setSaveError(e instanceof Error ? e.message : String(e));
       setSaveState('error');
     }
-  }, [phase0Data, logEntries, phase1Result, competitorAnalysis, phase2Result, phase3Result, phase4Result]);
+  }, [phase0Data, logEntries, phase1Result, competitorAnalysis, phase2Result, phase3Result, phase4Result, externalUrls]);
 
   // ── データ変換 ──────────────────────────────────────────────
 
