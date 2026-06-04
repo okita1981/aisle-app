@@ -401,10 +401,11 @@ JSONで返答してください。`;
     },
     body: JSON.stringify({
       model: 'claude-sonnet-4-20250514',
-      max_tokens: 6000,
+      max_tokens: 4096,
       system: DESIGN_STEP2_SYSTEM_PROMPT,
       messages: [{ role: 'user', content: userContent }],
     }),
+    signal: AbortSignal.timeout(50000),
   });
   // bodyは一度しか読めないため text() で先読みしてから parse する
   let anthropicRaw = '';
