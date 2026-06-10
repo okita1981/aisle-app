@@ -27,6 +27,9 @@ interface ApiDesignStep2Response {
   step4: ConnectionOrderRow[];
   connectionComment: string;
   validationResult?: ValidationResult;
+}
+
+interface ApiDesignStep3Response {
   step5: EIdComplementRow[];
   step6: AppearanceEvalRow[];
   summary: {
@@ -41,7 +44,7 @@ interface ApiDesignStep2Response {
 interface GenerationState {
   result: Phase2PerPID | null;
   isGenerating: boolean;
-  generatingStep: 1 | 2 | null;
+  generatingStep: 1 | 2 | 3 | null;
   error: string | null;
 }
 
@@ -738,14 +741,13 @@ export function Phase2Design() {
 
       const d1 = json1.data;
 
-      // ── STEP4〜6 + サマリ ─────────────────────────────────
+      // ── STEP4 + validationResult ──────────────────────────
       setGenerationMap(prev => ({
         ...prev,
         [promptId]: { result: prev[promptId]?.result ?? null, isGenerating: true, generatingStep: 2, error: null },
       }));
 
       // 現在のP-IDに関係するeIdMatrix行だけを絞り込んで渡す
-      // promptTypeId（問いの型: P-01〜P-06）でフィルタリング
       const filteredEIdMatrix = phase1Result?.sub3?.eIdMatrix?.filter(
         row => row.promptTypeId === promptTypeId
       ) ?? [];
@@ -761,9 +763,35 @@ export function Phase2Design() {
         }),
       });
       const json2 = await safeReadApiJson(resp2) as { ok: boolean; data?: ApiDesignStep2Response; error?: string };
-      if (!json2.ok || !json2.data) throw new Error(json2.error ?? 'API エラー（STEP4〜6）');
+      if (!json2.ok || !json2.data) throw new Error(json2.error ?? 'API エラー（STEP4）');
 
       const d2 = json2.data;
+
+      // ── STEP5 + STEP6 + サマリ ────────────────────────────
+      setGenerationMap(prev => ({
+        ...prev,
+        [promptId]: { result: prev[promptId]?.result ?? null, isGenerating: true, generatingStep: 3, error: null },
+      }));
+
+      // step3Slim: sbId/mId/tId/aId のみ（afterTextはSTEP5/6で不要）
+      const step3Slim = (d1.step3 ?? []).map((r: { sbId?: string; mId?: string; tId?: string; aId?: string }) => ({
+        sbId: r.sbId, mId: r.mId, tId: r.tId, aId: r.aId,
+      }));
+
+      const resp3 = await fetch('/api/design-step3', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...commonParams,
+          step4: d2.step4,
+          step3Slim,
+          eIdMatrix: filteredEIdMatrix.length > 0 ? filteredEIdMatrix : undefined,
+        }),
+      });
+      const json3 = await safeReadApiJson(resp3) as { ok: boolean; data?: ApiDesignStep3Response; error?: string };
+      if (!json3.ok || !json3.data) throw new Error(json3.error ?? 'API エラー（STEP5〜6）');
+
+      const d3 = json3.data;
 
       const perPID: Phase2PerPID = {
         pId: subId,
@@ -777,9 +805,9 @@ export function Phase2Design() {
         connectionOrder: d2.step4 ?? [],
         connectionComment: d2.connectionComment ?? '',
         validationResult: d2.validationResult,
-        eIdComplement: d2.step5 ?? [],
-        appearanceEval: d2.step6 ?? [],
-        appearanceSummary: d2.summary ?? { overallImpression: '', keyBun: '', complementNeeds: '', implementationProposal: '' },
+        eIdComplement: d3.step5 ?? [],
+        appearanceEval: d3.step6 ?? [],
+        appearanceSummary: d3.summary ?? { overallImpression: '', keyBun: '', complementNeeds: '', implementationProposal: '' },
         generatedAt: new Date().toISOString(),
       };
 
@@ -1084,7 +1112,7 @@ export function Phase2Design() {
                                 variant="primary"
                               >
                                 {state.isGenerating
-                                  ? state.generatingStep === 1 ? 'STEP1〜3 生成中...' : 'STEP4〜6 生成中...'
+                                  ? state.generatingStep === 1 ? 'STEP1〜3 生成中...' : state.generatingStep === 2 ? 'STEP4 生成中...' : 'STEP5〜6 生成中...'
                                   : state.result ? '再生成' : '生成'}
                               </Button>
                             )}
@@ -1181,7 +1209,9 @@ export function Phase2Design() {
                           <div className="animate-spin w-4 h-4 border-2 border-blue-400 border-t-transparent rounded-full" />
                           {state.generatingStep === 1
                             ? 'STEP1〜3（M-ID接点・構文ポートフォリオ・After構文）を生成中です...'
-                            : 'STEP4〜6（構文接続順・E-ID補完・出現評価・サマリ）を生成中です...'}
+                            : state.generatingStep === 2
+                            ? 'STEP4（構文接続順の検証・補正）を生成中です...'
+                            : 'STEP5〜6（勝因マトリクス・出現構造評価・サマリ）を生成中です...'}
                         </div>
                       )}
                     </div>
