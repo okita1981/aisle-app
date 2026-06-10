@@ -362,7 +362,7 @@ JSONで返答してください。`;
     },
     body: JSON.stringify({
       model: 'claude-sonnet-4-20250514',
-      max_tokens: 800,
+      max_tokens: 1500,
       system: DESIGN_STEP2_SYSTEM_PROMPT,
       messages: [{ role: 'user', content: userContent }],
     }),
