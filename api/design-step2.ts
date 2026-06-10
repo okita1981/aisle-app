@@ -370,6 +370,18 @@ async function callDesignStep2Api(
   // sbIdPromptId は参照情報として渡す（step4 は STEP3 の sbId を維持するため命名に直接は使わない）
   const sbNote = sbIdPromptId ? `\nログ識別子（参照）: ${sbIdPromptId}` : '';
 
+  // STEP4〜6に必要なフィールドだけ抽出（入力トークン削減）
+  type Step1Row = { mId?: string; designNecessity?: string; [k: string]: unknown };
+  type Step3Row = { sbId?: string; mId?: string; tId?: string; aId?: string; afterText?: string; [k: string]: unknown };
+  const slimPayload = {
+    step1: Array.isArray(step1)
+      ? (step1 as Step1Row[]).map(r => ({ mId: r.mId, designNecessity: r.designNecessity }))
+      : step1,
+    step3: Array.isArray(step3)
+      ? (step3 as Step3Row[]).map(r => ({ sbId: r.sbId, mId: r.mId, tId: r.tId, aId: r.aId, afterText: r.afterText }))
+      : step3,
+  };
+
   const userContent = `【商材情報】
 会社名: ${companyName}
 商材カテゴリ: ${productCategory}
@@ -384,7 +396,7 @@ P-ID: ${pId}
 ${secondaryPIdContext}
 
 【STEP1〜3の設計結果（参照情報）】
-${JSON.stringify({ step1, step3 }, null, 2)}
+${JSON.stringify(slimPayload, null, 2)}
 
 上記のSTEP1〜3の設計結果を踏まえて、構文接続順・E-ID補完・出現構造評価・サマリを生成してください。
 JSONで返答してください。`;
@@ -394,8 +406,9 @@ JSONで返答してください。`;
 
   const step3Count = Array.isArray(step3) ? (step3 as unknown[]).length : 0;
   const step1Count = Array.isArray(step1) ? (step1 as unknown[]).length : 0;
-  const step3JsonChars = JSON.stringify({ step1, step3 }, null, 2).length;
-  console.log(`[design-step2] pId=${pId} input_chars=${userContent.length} system_chars=${DESIGN_STEP2_SYSTEM_PROMPT.length} step1_count=${step1Count} step3_count(SB-ID)=${step3Count} step3_json_chars=${step3JsonChars}`);
+  const slimJsonChars = JSON.stringify(slimPayload, null, 2).length;
+  const fullJsonChars = JSON.stringify({ step1, step3 }, null, 2).length;
+  console.log(`[design-step2] pId=${pId} input_chars=${userContent.length} system_chars=${DESIGN_STEP2_SYSTEM_PROMPT.length} step1_count=${step1Count} step3_count(SB-ID)=${step3Count} slim_json_chars=${slimJsonChars} full_json_chars=${fullJsonChars} reduction=${Math.round((1 - slimJsonChars / fullJsonChars) * 100)}%`);
 
   const resp = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
