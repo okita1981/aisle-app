@@ -393,6 +393,8 @@ JSONで返答してください。`;
   const apiKey = process.env.ANTHROPIC_API_KEY ?? '';
   if (!apiKey) throw new Error('ANTHROPIC_API_KEY が未設定です');
 
+  console.log(`[design] pId=${pId} input_chars=${userContent.length} system_chars=${DESIGN_SYSTEM_PROMPT.length}`);
+
   const resp = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {

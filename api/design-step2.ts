@@ -392,6 +392,11 @@ JSONで返答してください。`;
   const apiKey = process.env.ANTHROPIC_API_KEY ?? '';
   if (!apiKey) throw new Error('ANTHROPIC_API_KEY が未設定です');
 
+  const step3Count = Array.isArray(step3) ? (step3 as unknown[]).length : 0;
+  const step1Count = Array.isArray(step1) ? (step1 as unknown[]).length : 0;
+  const step3JsonChars = JSON.stringify({ step1, step3 }, null, 2).length;
+  console.log(`[design-step2] pId=${pId} input_chars=${userContent.length} system_chars=${DESIGN_STEP2_SYSTEM_PROMPT.length} step1_count=${step1Count} step3_count(SB-ID)=${step3Count} step3_json_chars=${step3JsonChars}`);
+
   const resp = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
