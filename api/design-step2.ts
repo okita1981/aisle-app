@@ -441,6 +441,8 @@ JSONで返答してください。`;
   }
   if (!resp.ok) throw new Error(data.error?.message ?? `Claude API error ${resp.status}`);
   const rawText = (data.content?.[0]?.text ?? '').trim();
+  const usage = (data as unknown as { usage?: { input_tokens?: number; output_tokens?: number } }).usage;
+  console.log(`[design-step2] output_chars=${rawText.length} input_tokens=${usage?.input_tokens ?? 'n/a'} output_tokens=${usage?.output_tokens ?? 'n/a'}`);
   const cleanedText = cleanJson(rawText);
   try {
     return JSON.parse(cleanedText);
