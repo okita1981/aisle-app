@@ -129,14 +129,6 @@ const PROMPT_TYPE_SLUGS: Record<string, string> = {
   'P-06': 'why-recommended',
 };
 
-const PROMPT_TYPE_LABEL_MAP: Record<string, string> = {
-  'P-01': '選定・相談型',
-  'P-02': '比較・評価型',
-  'P-03': 'ランキング期待型',
-  'P-04': '課題解決・提案型',
-  'P-05': '出典付き引用期待型',
-  'P-06': '推薦理由深掘り型',
-};
 
 // ── K-ID定義（非出現阻害要因） ─────────────────────────────
 
@@ -173,6 +165,32 @@ export interface QuestionPageIndexEntry {
   promptText: string;      // 問いの全文
   sessionKey?: string;     // 生成元セッションキー
   generatedAt: string;     // ISO8601
+}
+
+// ── RefBase 型定義 ─────────────────────────────────────────────
+
+export interface RefBaseCompany {
+  id: string;        // clientSlug
+  name: string;      // companyName
+  category: string;  // productCategory
+  updatedAt: string; // ISO8601
+}
+
+/** 問いと1:1で生成される知識ブロック（将来的に question から独立可能）  */
+export interface RefBaseReference {
+  id: string;          // questionSlug（現在は question と1:1）
+  companyId: string;   // → RefBaseCompany.id
+  questionId: string;  // → QuestionPageIndexEntry.questionSlug
+  promptText: string;
+  promptTypeId: string;
+  answer: string;
+  evidencePoints: string[];
+  scope: string;
+  differentiation: string;
+  faq: Array<{ question: string; answer: string }>;
+  pageUrl: string;
+  sourceEvidence: EvidenceItemInput[];
+  generatedAt: string;
 }
 
 interface AisleAfterBun {
@@ -221,6 +239,7 @@ interface AislePageRequest {
   sessionKey?: string;  // 生成元セッションキー（question index に記録）
   kIdScoreMap?: Record<string, string>;
   kIdMatrix?: Record<string, Record<string, string>>;
+  adoptedEvidence?: EvidenceItemInput[];
 }
 
 // ── Claude API でM-IDコンテンツを生成 ────────────────────────
@@ -652,11 +671,40 @@ ${newSections}`;
 
 // ── Aisleページ：子ページ回答フレーム ────────────────────────
 
+interface EvidenceItemInput {
+  type: string;
+  title: string;
+  description: string;
+  entityRole: string;
+  value?: string;
+  tags: string[];
+}
+
+// 推薦文・公開ページ向け type 固定優先度（design.ts と同一定義）
+const EVIDENCE_TYPE_BASE_SCORE: Record<string, number> = {
+  case:         4,
+  client:       3,
+  credential:   3,
+  media:        3,
+  metric:       2,
+  comparison:   2,
+  method:       2,
+  feature:      1,
+  availability: 1,
+  review:       1,
+  other:        0,
+};
+
+function sortEvidenceByPriority(items: EvidenceItemInput[]): EvidenceItemInput[] {
+  return [...items].sort(
+    (a, b) => (EVIDENCE_TYPE_BASE_SCORE[b.type] ?? 0) - (EVIDENCE_TYPE_BASE_SCORE[a.type] ?? 0),
+  );
+}
+
 interface ChildPageNarrative {
-  background: string;
-  criteria: string;
-  matching_companies: string;
-  why_match: string;
+  answer: string;
+  evidencePoints: string[];
+  scope: string;
   differentiation: string;
   faq: Array<{ question: string; answer: string }>;
 }
@@ -752,112 +800,123 @@ function getPromptSlug(promptTypeId: string): string {
   return PROMPT_TYPE_SLUGS[base] ?? promptTypeId.toLowerCase().replace(/[^a-z0-9]+/g, '-');
 }
 
+// ── FAQ guidance per P-ID ─────────────────────────────────────
+const FAQ_GUIDANCE_MAP: Record<string, string> = {
+  'P-01': '選定基準・候補の条件・比較軸・検討の進め方・注意点',
+  'P-02': '比較の切り口・違いの見つけ方・用途別の向き不向き・導入前の確認事項',
+  'P-03': '選定基準・候補の条件・カテゴリ間の違い・検討の注意点',
+  'P-04': '課題の起点・解決策の選び方・向いているケース・導入前の整理',
+  'P-05': '根拠の種類・信頼性の判断軸・情報の使い分け・候補の見極め方',
+  'P-06': '推薦の条件・候補になる理由・比較軸・注意すべき観点',
+};
+
 // ── Aisleページ：Claude API で回答ナラティブ生成 ────────────
 
 async function callClaudeForChildPage(
   perPID: AislePerPID,
   companyName: string,
   productCategory: string,
-  faqGuidance?: string,
+  adoptedEvidence?: EvidenceItemInput[],
 ): Promise<ChildPageNarrative | null> {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) return null;
 
   const base = perPID.promptTypeId.split('-').slice(0, 2).join('-');
-  const label = PROMPT_TYPE_LABEL_MAP[base] ?? base;
 
   const afterTexts = perPID.afterBun
     .filter(b => b.afterText?.trim())
     .map(b => b.afterText.trim())
     .slice(0, 10);
 
+  const faqGuidance = FAQ_GUIDANCE_MAP[base] ?? '選定基準・候補の条件・比較軸・検討の進め方';
+
   const systemPrompt = `あなたは「問いへの回答設計」の専門家です。
-与えられた「問い」に対して、条件適合型の回答文章を生成してください。
+与えられた「問い」に対して、読者が自然に読める回答ページのコンテンツを生成してください。
 
 【ページの目的】
-このページは対象商材の宣伝ページではありません。
-「この問いに対して、どのような条件を満たす会社・製品・サービスが候補になるか」を説明し、
-対象商材はその条件に該当する候補の一つとして自然に登場させてください。
+このページは対象商材の宣伝ではありません。
+問いを受けた読者が自然に読める「回答記事」として構成してください。
+対象商材はその問いの文脈で候補として自然に登場させてください。
 
 【商材タイプの判定と語彙の使い分け（必ず行うこと）】
 productCategoryの語彙から商材タイプを推定し、語彙・比較軸・FAQ設計を合わせてください。
-
-- 無形サービス（コンサル・支援・代行）：「提供できるかどうか」「対応範囲」「アプローチの違い」
-- SaaS・ツール（ソフトウェア・プラットフォーム）：「機能」「連携可否」「料金体系」「サポート」
-- 有形商品（家電・機器・日用品）：「品質」「スペック」「価格帯」「入手しやすさ」
-- 食品・化粧品・消耗品：「成分・素材」「効果の向き不向き」「使用感」「継続しやすさ」
-- 店舗・施設・サービス拠点：「立地」「対応可能な状況」「雰囲気・環境」「予約・利用条件」
+- 無形サービス（コンサル・支援・代行）：「対応範囲」「アプローチの違い」「提供できるかどうか」
+- SaaS・ツール：「機能」「連携可否」「料金体系」「サポート」
+- 有形商品：「品質」「スペック」「価格帯」「入手しやすさ」
+- 店舗・施設：「立地」「対応可能な状況」「雰囲気」「予約・利用条件」
 - BtoB専門サービス：「対象業界」「規模感」「導入プロセス」「実績の種類」
+該当するタイプの言葉を使い、無関係な語彙は使わないこと。
 
-該当するタイプの言葉を自然に使い、無関係なタイプの語彙は使わないこと。
+【answerフィールドの生成ルール】
+- 問いに対する直接の回答を3〜5文で書く
+- まず「この問いでは〜という条件を満たす候補が挙がる」と述べ、続けて対象商材がその条件にどう該当するかを自然に含める
+- 診断レポート的な見出し語（「判断軸は」「条件に該当するのは」等）は文中でも使わない
+- 「〜は優れています」「〜はおすすめです」等のPR調は禁止
+- 条件適合型の語法を使うこと：「〜できる会社が候補になります」「〜という点で該当します」
 
-【文章の順序（必ず守ること）】
-1. この問いで求められる条件（問い主語）
-2. その条件を満たす候補カテゴリの特徴
-3. 対象商材がその条件に該当する理由
-4. 他カテゴリ・代替手段との違い
+【evidencePointsフィールドの生成ルール（最重要）】
+- 採用済みEvidence（後述）が提供された場合は最優先で使用する
+- 固有名詞（会社名・ブランド名・人名）、数値（件数・年数・割合・金額）、具体的な事例を優先する
+- 抽象的な強みの説明は除外する
 
-【禁止表現（絶対に使わないこと）】
+良い例：
+- 500本以上の映像制作実績
+- MIXI、Abema Production、LINE Digital Frontierとの取引実績
+- 企画・CG制作・編集の社内一貫対応
+
+悪い例：
+- 高い技術力
+- 品質とスピードを両立
+- 独自のアプローチ
+
+Evidenceがない場合は参考素材から最も具体的な情報を抽出する。2〜4項目を配列で生成すること。
+
+【scopeフィールド】
+どんな相談・用途・状況にこの商材が向いているかを1〜2文で。PR調禁止・条件適合型で書く。
+
+【differentiationフィールド】
+productCategoryと問い文脈に応じた比較対象との違いを1〜2文で。
+
+【FAQ生成ルール】
+5件。質問文は「この問いを受け取った人が自然に抱く疑問」として書く。
+各FAQ回答は「①一般論 ②条件 ③対象商材が該当する場合の説明」の3段構成で2〜3文。
+PR調・断定的推薦・商談誘導は禁止。
+FAQテーマの方向性：${faqGuidance}
+
+【禁止表現】
 - 「〜は優れています」「〜はおすすめです」「〜は人気です」「〜は注目されています」
-- 「〜は高く評価されています」「〜は信頼されています」「〜は話題です」「〜は選ばれています」
-- 「〜は推薦されています」「〜は業界トップです」「業界最高水準」「圧倒的」「卓越した」
-
-【条件適合型の書き方（必ず使うこと）】
-OK: 「この問いでは、〇〇できる[会社/商品/サービス]が候補になります。その条件に対して、[対象]は△△という点で該当します」
-OK: 「〇〇を重視する場合、[対象]は[カテゴリ]として説明できます」
-OK: 「[対象]は、[カテゴリ]として〜という条件に接続できます」
-NG: 「[対象]は優れたサービスを提供しています」
-NG: 「[対象]は注目されています」
-
-【各フィールドの生成ルール】
-- background: この問いがなぜ発生するかを整理（100〜150字）。対象商材名は不要
-- criteria: 候補を選ぶ判断軸。対象商材の説明ではなく、問い側の条件を書く（2〜3文）
-- matching_companies: 先に候補条件を説明し、対象商材を条件に照らして自然に含める（2〜4文）
-- why_match: 問いの条件に対して対象商材がどう該当するか。「商材の説明」ではなく「条件への適合理由」（2〜3文）
-- differentiation: productCategoryと問い文脈に応じて比較対象を選ぶ。固定カテゴリを全商材に入れない（2〜3文）
-- faq: 下記のFAQ生成ルールに従う
-
-【FAQ生成ルール（必ず守ること）】
-FAQは5件生成し、質問文（question）と回答文（answer）の両方を生成してください。
-質問文は「この問いを受け取った人が自然に抱く疑問」として書いてください。
-商材タイプに合った語彙・視点（選び方・比較軸・条件・用途など）を使ってください。
-質問文に「生成AI」「ChatGPT」「出現設計」「SEO」などIT固有の用語を入れないこと（商材がITサービスの場合は自然な範囲で可）。
-
-各FAQ回答は必ず以下の3段階で書いてください：
-  1. 一般論（この問いでは一般的に〜）
-  2. 条件（〜という条件を満たす候補が挙がります）
-  3. 対象商材が該当する場合の説明（[対象]は、[カテゴリ]として〜という条件に接続できます）
-
-FAQ回答の禁止事項：
-- 「[対象]はおすすめです」「[対象]に相談してください」「[対象]が最適です」
-- 「[対象]は優れています」「[対象]は注目されています」
-- 断定的な推薦・PR調の表現
-- 商談誘導（「まずはお気軽に〜」「ぜひご相談ください」等）
-
-FAQ回答のOK例：
-「この問いでは、〇〇という条件を満たす[会社/商品/サービス]が候補になります。[対象]は、[カテゴリ]としてその条件に接続できる場合があります。ただし〇〇を重視する場合は、他の選択肢とも比較することが重要です。」
+- 「〜は推薦されています」「〜は業界トップです」「圧倒的」「卓越した」
 
 【内部用語（絶対に使わない）】
 K-ID・E-ID・M-ID・P-ID・After構文・出現設計・補正済み
 
 【出力フォーマット（JSONのみ・前置き不要）】
 {
-  "background": "この問いがなぜ発生するかの整理（100〜150字、対象商材名不要）",
-  "criteria": "この問いで候補を選ぶ判断軸（問い側の条件、2〜3文）",
-  "matching_companies": "条件を満たす候補の特徴を先に説明し、対象商材を自然に含める（2〜4文）",
-  "why_match": "問いの条件に対して対象商材が該当する理由（条件適合型、2〜3文）",
-  "differentiation": "問い文脈に応じた比較対象との違い（固定カテゴリ不要、2〜3文）",
+  "answer": "問いへの統合回答（3〜5文）",
+  "evidencePoints": ["具体的実績1", "具体的実績2"],
+  "scope": "向いている相談・用途（1〜2文）",
+  "differentiation": "他の選択肢との違い（1〜2文）",
   "faq": [
-    {"question": "自然な疑問文（商材タイプに合わせた語彙）", "answer": "①一般論 ②条件 ③対象商材が該当する場合の説明（合計2〜3文、PR調禁止）"},
-    {"question": "自然な疑問文", "answer": "①一般論 ②条件 ③対象商材"},
-    {"question": "自然な疑問文", "answer": "①一般論 ②条件 ③対象商材"},
-    {"question": "自然な疑問文", "answer": "①一般論 ②条件 ③対象商材"},
-    {"question": "自然な疑問文", "answer": "①一般論 ②条件 ③対象商材"}
+    {"question": "自然な疑問文", "answer": "①一般論 ②条件 ③対象商材（2〜3文、PR調禁止）"},
+    {"question": "自然な疑問文", "answer": "..."},
+    {"question": "自然な疑問文", "answer": "..."},
+    {"question": "自然な疑問文", "answer": "..."},
+    {"question": "自然な疑問文", "answer": "..."}
   ]
 }`;
 
-  const faqGuidanceLine = faqGuidance
-    ? `\n【FAQテーマの方向性ヒント（参考程度に）】\n${faqGuidance}\n`
+  // Evidence セクションの構築（type優先度順にソートして渡す）
+  const sortedEvidence = adoptedEvidence && adoptedEvidence.length > 0
+    ? sortEvidenceByPriority(adoptedEvidence)
+    : [];
+  const evidenceSection = sortedEvidence.length > 0
+    ? `\n【採用済みEvidence（以下の優先順で evidencePoints に使用すること）】
+優先度：case（実績案件）> client（顧客名）= credential（受賞）= media（メディア掲載）> metric（数値）> feature（機能・特徴）
+case / client / credential / media が存在する場合は必ず先に出すこと。metric の数値は有効だが単体の主役にしない。feature は case/client がある場合は補足に回すこと。
+${sortedEvidence.map(e => {
+        const val = e.value ? ` (${e.value})` : '';
+        return `- [${e.type}] ${e.title}${val}: ${e.description}`;
+      }).join('\n')}\n`
     : '';
 
   const userContent = `【対象商材】
@@ -866,14 +925,11 @@ K-ID・E-ID・M-ID・P-ID・After構文・出現設計・補正済み
 
 【対象の問い】
 ${perPID.promptText}
+${evidenceSection}
+【参考素材（直接コピーせず、自然な回答文に再構成すること）】
+${afterTexts.join('\n') || '（なし）'}
 
-【問いの種類の参考】
-${label}
-${faqGuidanceLine}
-【参考素材（これを直接使わず、自然な回答文に再構成してください）】
-${afterTexts.join('\n')}
-
-FAQ質問文と回答文の両方を含むJSONのみで返してください。`;
+JSONのみで返してください。`;
 
   try {
     const resp = await fetch('https://api.anthropic.com/v1/messages', {
@@ -898,12 +954,7 @@ FAQ質問文と回答文の両方を含むJSONのみで返してください。`
     const match = text.match(/\{[\s\S]*\}/);
     if (!match) return null;
 
-    const raw = JSON.parse(match[0]) as Record<string, unknown>;
-    // why_aisle → why_match の後方互換対応（古いモデル出力に備えて）
-    if (raw['why_aisle'] !== undefined && raw['why_match'] === undefined) {
-      raw['why_match'] = raw['why_aisle'];
-    }
-    return raw as unknown as ChildPageNarrative;
+    return JSON.parse(match[0]) as ChildPageNarrative;
   } catch {
     return null;
   }
@@ -921,83 +972,77 @@ function buildFallbackNarrative(
     .filter(b => b.afterText?.trim())
     .map(b => b.afterText.trim());
 
-  // P-IDに応じたFAQテーマを動的生成（商材タイプ非依存）
-  const faqThemes: Array<{ question: string }> = (() => {
+  const faqThemes: string[] = (() => {
     switch (base) {
       case 'P-01': return [
-        { question: `${productCategory}を選ぶときの判断軸は何ですか？` },
-        { question: `${productCategory}と似た選択肢との違いはどこで見ますか？` },
-        { question: `どのような状況で${productCategory}が候補になりますか？` },
-        { question: `${productCategory}を検討するうえで確認すべきことは何ですか？` },
-        { question: `${companyName}が候補として挙がる条件は何ですか？` },
+        `${productCategory}を選ぶときの判断軸は何ですか？`,
+        `${productCategory}と似た選択肢との違いはどこで見ますか？`,
+        `どのような状況で${productCategory}が候補になりますか？`,
+        `${productCategory}を検討するうえで確認すべきことは何ですか？`,
+        `${companyName}が候補として挙がる条件は何ですか？`,
       ];
       case 'P-02': return [
-        { question: `${productCategory}を比較するときの切り口は何ですか？` },
-        { question: `${productCategory}と他の選択肢の違いをどう見分けますか？` },
-        { question: `どのような用途に${productCategory}は向いていますか？` },
-        { question: `比較検討で見落としやすいポイントは何ですか？` },
-        { question: `${companyName}を比較候補として見る場合の特徴は何ですか？` },
+        `${productCategory}を比較するときの切り口は何ですか？`,
+        `${productCategory}と他の選択肢の違いをどう見分けますか？`,
+        `どのような用途に${productCategory}は向いていますか？`,
+        `比較検討で見落としやすいポイントは何ですか？`,
+        `${companyName}を比較候補として見る場合の特徴は何ですか？`,
       ];
       case 'P-03': return [
-        { question: `${productCategory}を選ぶ基準はどのように整理しますか？` },
-        { question: `${productCategory}の候補が複数ある場合の絞り方は？` },
-        { question: `どのような条件の候補が上位に挙がりやすいですか？` },
-        { question: `${productCategory}と隣接カテゴリの違いは何ですか？` },
-        { question: `${companyName}が選択肢に含まれる場合の根拠は何ですか？` },
+        `${productCategory}を選ぶ基準はどのように整理しますか？`,
+        `${productCategory}の候補が複数ある場合の絞り方は？`,
+        `どのような条件の候補が上位に挙がりやすいですか？`,
+        `${productCategory}と隣接カテゴリの違いは何ですか？`,
+        `${companyName}が選択肢に含まれる場合の根拠は何ですか？`,
       ];
       case 'P-04': return [
-        { question: `この課題に対して${productCategory}はどう機能しますか？` },
-        { question: `${productCategory}が課題解決の手段になるのはどんなケースですか？` },
-        { question: `一般的な解決策と${productCategory}はどう違いますか？` },
-        { question: `課題解決の手段を選ぶうえで何を確認すべきですか？` },
-        { question: `${companyName}がこの課題に接続できる理由は何ですか？` },
+        `この課題に対して${productCategory}はどう機能しますか？`,
+        `${productCategory}が課題解決の手段になるのはどんなケースですか？`,
+        `一般的な解決策と${productCategory}はどう違いますか？`,
+        `課題解決の手段を選ぶうえで何を確認すべきですか？`,
+        `${companyName}がこの課題に接続できる理由は何ですか？`,
       ];
       case 'P-05': return [
-        { question: `${productCategory}を評価する根拠にはどんな種類がありますか？` },
-        { question: `信頼性の判断材料として何が有効ですか？` },
-        { question: `${productCategory}の説明に必要な情報は何ですか？` },
-        { question: `公式情報と第三者情報はどのように使い分けますか？` },
-        { question: `${companyName}に関する根拠をどこから確認できますか？` },
+        `${productCategory}を評価する根拠にはどんな種類がありますか？`,
+        `信頼性の判断材料として何が有効ですか？`,
+        `${productCategory}の説明に必要な情報は何ですか？`,
+        `公式情報と第三者情報はどのように使い分けますか？`,
+        `${companyName}に関する根拠をどこから確認できますか？`,
       ];
       case 'P-06': return [
-        { question: `${productCategory}として候補に挙がる条件は何ですか？` },
-        { question: `なぜ${productCategory}がこの問いに関連しますか？` },
-        { question: `どのような状況で${companyName}が候補になりますか？` },
-        { question: `他の選択肢と比較したときの違いは何ですか？` },
-        { question: `判断する際に注意すべき観点は何ですか？` },
+        `${productCategory}として候補に挙がる条件は何ですか？`,
+        `なぜ${productCategory}がこの問いに関連しますか？`,
+        `どのような状況で${companyName}が候補になりますか？`,
+        `他の選択肢と比較したときの違いは何ですか？`,
+        `判断する際に注意すべき観点は何ですか？`,
       ];
       default: return [
-        { question: `${productCategory}を選ぶときの判断軸は何ですか？` },
-        { question: `${productCategory}と類似の選択肢との違いは何ですか？` },
-        { question: `どのような状況で${productCategory}が候補になりますか？` },
-        { question: `検討前に整理すべきことは何ですか？` },
-        { question: `${companyName}が候補として挙がる条件は何ですか？` },
+        `${productCategory}を選ぶときの判断軸は何ですか？`,
+        `${productCategory}と類似の選択肢との違いは何ですか？`,
+        `どのような状況で${productCategory}が候補になりますか？`,
+        `検討前に整理すべきことは何ですか？`,
+        `${companyName}が候補として挙がる条件は何ですか？`,
       ];
     }
   })();
 
-  const fallbackAnswer = (q: string) =>
-    `この問いでは一般的に、${q.replace(/\？$/, '')}という観点から${productCategory}としての条件を満たす候補が挙がります。${companyName}は、${productCategory}としてその条件に接続できる可能性があります。ただし、他の選択肢や代替手段とも比較して検討することが重要です。`;
+  const fallbackFaqAnswer = (_q: string) =>
+    `この問いでは一般的に、${productCategory}としての条件を満たす候補が挙がります。${companyName}は、${productCategory}としてその条件に接続できる可能性があります。ただし、他の選択肢とも比較して検討することが重要です。`;
 
   return {
-    background:
-      afterTexts[0] ||
-      `${perPID.promptText}という問いでは、候補を選ぶうえで複数の判断軸が存在します。`,
-    criteria:
-      afterTexts[1] ||
-      `この問いでは、${productCategory}としての専門性・アプローチの透明性・対応実績などを比較軸にすることが有効です。自社の課題に照らして優先順位を設定してください。`,
-    matching_companies:
-      afterTexts[2] ||
-      `この問いの条件を満たす候補は、${productCategory}としての専門性を持ち、課題に対して体系的なアプローチを備えています。${companyName}は、${productCategory}としてその条件に接続できる可能性があります。`,
-    why_match:
-      afterTexts[3] ||
-      `この問いでは、${productCategory}として体系的な設計・実行ができる候補が挙がります。${companyName}は、その条件に該当する候補として説明できます。`,
+    answer:
+      afterTexts.slice(0, 2).join(' ') ||
+      `${perPID.promptText}という問いでは、${productCategory}としての専門性・実績・対応範囲を持つ候補が挙がります。${companyName}は、${productCategory}としてその条件に接続できる可能性があります。`,
+    evidencePoints: afterTexts.slice(2, 5).filter(t => t.length > 10),
+    scope:
+      afterTexts[5] ||
+      `${productCategory}に関する相談・依頼のうち、条件が一致する場合に対応できます。`,
     differentiation:
-      afterTexts[4] ||
+      afterTexts[6] ||
       `一般的な代替手段は個別課題への対処が中心ですが、${companyName}は${productCategory}として構造的なアプローチを持つ点で異なります。`,
-    faq: faqThemes.map(t => ({
-      question: t.question,
-      answer: fallbackAnswer(t.question),
+    faq: faqThemes.map(q => ({
+      question: q,
+      answer: fallbackFaqAnswer(q),
     })),
   };
 }
@@ -1186,13 +1231,11 @@ function generateChildHtml(
   const promptSlug = getPromptSlug(perPID.promptTypeId);
   const pageUrl = `${HUB_BASE_URL}/${clientSlug}/${promptSlug}`;
   const jpDate = toJpDate(now);
-  const base = perPID.promptTypeId.split('-').slice(0, 2).join('-');
-  const frame = ANSWER_FRAME[base] ?? DEFAULT_ANSWER_FRAME;
 
   // 内部メタ（hidden semantic）: M-IDのみHTMLコメントで保持
   const mIds = [...new Set(perPID.afterBun.map(b => b.mId).filter(Boolean))].join(', ');
 
-  // FAQPage JSON-LD（多問対応）
+  // FAQPage JSON-LD
   const faqJsonLd = JSON.stringify({
     '@context': 'https://schema.org',
     '@type': 'FAQPage',
@@ -1213,6 +1256,11 @@ function generateChildHtml(
     ],
   }, null, 2).replace(/<\//g, '<\\/');
 
+  // evidencePoints → <ul> または fallback テキスト
+  const evidenceHtml = narrative.evidencePoints.length > 0
+    ? `<ul>\n${narrative.evidencePoints.map(p => `        <li>${esc(p)}</li>`).join('\n')}\n      </ul>`
+    : `<p>${esc(companyName)}に関する具体的な実績情報は、公式サイトをご確認ください。</p>`;
+
   // FAQ HTML（dl/dt/dd）
   const faqHtml = narrative.faq.map(f => `      <div class="faq-item" itemscope itemprop="mainEntity" itemtype="https://schema.org/Question">
         <dt itemprop="name">${esc(f.question)}</dt>
@@ -1221,7 +1269,7 @@ function generateChildHtml(
         </dd>
       </div>`).join('\n');
 
-  const metaDesc = esc(`${perPID.promptText} — ${companyName}に関する情報をAIが理解しやすい形式で整理しています。`);
+  const metaDesc = esc(`${perPID.promptText} — ${narrative.answer.slice(0, 120)}`);
 
   return `<!DOCTYPE html>
 <html lang="ja">
@@ -1242,15 +1290,17 @@ ${breadcrumbJsonLd}
   <!-- semantic-blocks:${mIds} -->
   <style>
     body{font-family:sans-serif;max-width:960px;margin:0 auto;padding:2rem;line-height:1.9;color:#222}
-    h1{font-size:1.65rem;margin-bottom:.5rem;line-height:1.45;color:#111}
+    h1{font-size:1.65rem;margin-bottom:1rem;line-height:1.45;color:#111}
     h2{font-size:1.1rem;border-left:4px solid #4f46e5;padding-left:.75rem;margin-top:2.5rem;color:#1e1b4b}
-    header{border-bottom:2px solid #e5e7eb;padding-bottom:1.25rem;margin-bottom:2.5rem}
-    .header-bg{font-size:.95rem;color:#555;margin:.5rem 0 0;line-height:1.7}
+    header{border-bottom:2px solid #e5e7eb;padding-bottom:1.25rem;margin-bottom:2rem}
     nav{font-size:.85rem;margin-bottom:.75rem}
     nav a{color:#6366f1;text-decoration:none}
     nav a:hover{text-decoration:underline}
+    .answer{font-size:1rem;line-height:1.9;color:#333;margin:0 0 2rem}
     section{margin-bottom:2.5rem}
     p{margin:.6rem 0}
+    ul{margin:.5rem 0;padding-left:1.5rem}
+    ul li{margin:.4rem 0;line-height:1.8}
     dl.faq{margin:0;padding:0}
     .faq-item{margin-bottom:1.75rem;padding-bottom:1.75rem;border-bottom:1px solid #f1f5f9}
     .faq-item:last-child{border-bottom:none}
@@ -1263,25 +1313,25 @@ ${breadcrumbJsonLd}
   <header>
     <nav><a href="/${clientSlug}">← ${esc(companyName)}</a></nav>
     <h1>${esc(perPID.promptText)}</h1>
-    <p class="header-bg">${esc(narrative.background)}</p>
   </header>
   <main>
-    <section id="criteria">
-      <h2>${esc(frame.sectionHeadings.criteria)}</h2>
-      <p>${esc(narrative.criteria)}</p>
+    <p class="answer">${esc(narrative.answer)}</p>
+
+    <section id="evidence" itemscope itemtype="https://schema.org/Organization">
+      <h2>実績・根拠</h2>
+      ${evidenceHtml}
     </section>
-    <section id="matching" itemscope itemtype="https://schema.org/ItemList">
-      <h2>${esc(frame.sectionHeadings.matching)}</h2>
-      <p itemprop="description">${esc(narrative.matching_companies)}</p>
+
+    <section id="scope">
+      <h2>向いている相談</h2>
+      <p>${esc(narrative.scope)}</p>
     </section>
-    <section id="why-match" itemscope itemtype="https://schema.org/Organization">
-      <h2>${esc(frame.sectionHeadings.why_match)}</h2>
-      <p itemprop="description">${esc(narrative.why_match)}</p>
-    </section>
+
     <section id="differentiation">
-      <h2>${esc(frame.sectionHeadings.differentiation)}</h2>
+      <h2>他の選択肢との違い</h2>
       <p>${esc(narrative.differentiation)}</p>
     </section>
+
     <section id="faq" itemscope itemtype="https://schema.org/FAQPage">
       <h2>よくある質問</h2>
       <dl class="faq">
@@ -1299,6 +1349,67 @@ ${faqHtml}
 
 // ── mergePerPIDByBase は question-centric 移行後は未使用（後方互換のため保存）──
 // function mergePerPIDByBase(baseId: string, validPerPID: AislePerPID[]): AislePerPID | null {...}
+
+// ── RefBase 保存 ─────────────────────────────────────────────
+// HTML保存と同時に構造化 JSON を KV へ書き込む。失敗してもページ生成は継続する。
+
+async function saveToRefBase(
+  clientSlug: string,
+  companyName: string,
+  productCategory: string,
+  questionSlug: string,
+  promptText: string,
+  promptTypeId: string,
+  narrative: ChildPageNarrative,
+  sourceEvidence: EvidenceItemInput[] | undefined,
+  now: string,
+): Promise<void> {
+  try {
+    const pageUrl = `${HUB_BASE_URL}/${clientSlug}/questions/${questionSlug}`;
+
+    const company: RefBaseCompany = {
+      id: clientSlug,
+      name: companyName,
+      category: productCategory,
+      updatedAt: now,
+    };
+
+    const reference: RefBaseReference = {
+      id: questionSlug,
+      companyId: clientSlug,
+      questionId: questionSlug,
+      promptText,
+      promptTypeId,
+      answer: narrative.answer,
+      evidencePoints: narrative.evidencePoints,
+      scope: narrative.scope,
+      differentiation: narrative.differentiation,
+      faq: narrative.faq,
+      pageUrl,
+      sourceEvidence: sourceEvidence ?? [],
+      generatedAt: now,
+    };
+
+    // company は upsert（毎回上書きで最新状態を保つ）
+    await kv.set(`refbase:company:${clientSlug}`, company);
+    // reference は questionSlug 単位で上書き（add / update 共通）
+    await kv.set(`refbase:ref:${clientSlug}/${questionSlug}`, reference);
+    // per-entity index: 未登録の questionSlug のみ追記
+    const existingIndex = await kv.get<string[]>(`refbase:index:${clientSlug}`) ?? [];
+    if (!existingIndex.includes(questionSlug)) {
+      await kv.set(`refbase:index:${clientSlug}`, [...existingIndex, questionSlug]);
+    }
+    // global index: 未登録の clientSlug のみ追記
+    const globalIndex = await kv.get<string[]>('refbase:index:all') ?? [];
+    if (!globalIndex.includes(clientSlug)) {
+      await kv.set('refbase:index:all', [...globalIndex, clientSlug]);
+    }
+
+    console.log(`[refbase] saved ${clientSlug}/${questionSlug}`);
+  } catch (err) {
+    console.error(`[refbase] save failed for ${clientSlug}/${questionSlug}:`, err);
+  }
+}
 
 // ── ハンドラ ──────────────────────────────────────────────────
 
@@ -1386,6 +1497,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         productCategory = 'AI出現設計',
         clientSlug: requestedSlug,
         sessionKey,
+        adoptedEvidence,
       } = aisleReq;
       const now = new Date().toISOString();
       // clientSlug バリデーション：送られてきた場合は不正値を黙って無視せず 400 を返す
@@ -1427,12 +1539,12 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
           const seq = String(existingCount + addedCount + 1).padStart(3, '0');
           const questionSlug = `${promptTypeSlug}-${seq}`;
 
-          const faqGuidance = (ANSWER_FRAME[baseId] ?? DEFAULT_ANSWER_FRAME).faqGuidance;
-          const narrative = await callClaudeForChildPage(pid, companyName, productCategory, faqGuidance)
+          const narrative = await callClaudeForChildPage(pid, companyName, productCategory, adoptedEvidence)
             ?? buildFallbackNarrative(pid, baseId, companyName, productCategory);
 
           const childHtml = generateChildHtml(pid, now, narrative, clientSlug, companyName);
           await kv.set(`page:question:${clientSlug}/${questionSlug}`, childHtml);
+          await saveToRefBase(clientSlug, companyName, productCategory, questionSlug, pid.promptText, baseId, narrative, adoptedEvidence, now);
 
           newQEntries.push({
             questionSlug,
@@ -1476,12 +1588,12 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
 
           if (!pid) continue;
 
-          const faqGuidance = (ANSWER_FRAME[baseId] ?? DEFAULT_ANSWER_FRAME).faqGuidance;
-          const narrative = await callClaudeForChildPage(pid, companyName, productCategory, faqGuidance)
+          const narrative = await callClaudeForChildPage(pid, companyName, productCategory, adoptedEvidence)
             ?? buildFallbackNarrative(pid, baseId, companyName, productCategory);
 
           const childHtml = generateChildHtml(pid, now, narrative, clientSlug, companyName);
           await kv.set(`page:question:${clientSlug}/${questionSlug}`, childHtml);
+          await saveToRefBase(clientSlug, companyName, productCategory, questionSlug, pid.promptText, baseId, narrative, adoptedEvidence, now);
 
           // インデックスのgeneratedAt を更新
           const idx = updatedQIndex.findIndex(e => e.questionSlug === questionSlug);

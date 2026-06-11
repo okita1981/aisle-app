@@ -1,6 +1,6 @@
 # CLAUDE.md — Aisle aisle-app 実装ガイダンス
 
-最終更新: 2026-06-03
+最終更新: 2026-06-11
 本番URL: https://app.aisle-aio.ai
 リポジトリ: `C:\Users\kousu\OneDrive\Desktop\CLAUDE Aisle\aisle-app`
 
@@ -42,7 +42,8 @@ aisle-app/
 │   ├── implement.ts         # Phase4: 実装計画策定
 │   ├── page-generate.ts     # Phase4: ページ生成（POST）・インデックス取得（GET）
 │   ├── page-get.ts          # 公開ページ取得（/{slug}ルーティング先）
-│   └── page-delete.ts       # ページ削除・インデックス更新・親ページ再生成
+│   ├── page-delete.ts       # ページ削除・インデックス更新・親ページ再生成
+│   └── refbase-get.ts       # RefBase KV読み取りAPI（Ver2.0追加）
 ├── src/
 │   ├── phases/
 │   │   ├── Phase0LogEntry.tsx
@@ -71,6 +72,10 @@ aisle-app/
 | `page:{clientSlug}` | 企業AIプロフィールページHTML（旧問い別親ページの後方互換あり） |
 | `page-index:{clientSlug}` | AislePageIndexEntry[] — 旧P-ID構造のインデックス（後方互換） |
 | `page-index:aisle` | llms.txt生成用インデックス（暫定） |
+| `refbase:company:{clientSlug}` | RefBaseCompany — 会社情報 |
+| `refbase:ref:{clientSlug}/{questionSlug}` | RefBaseReference — 問い別知識ブロック（answer/evidencePoints/faq等） |
+| `refbase:index:{clientSlug}` | string[] — RefBase登録済 questionSlug 一覧 |
+| `refbase:index:all` | string[] — 全クライアント（clientSlug）一覧（Ver2.0追加） |
 
 ### キー競合防止ルール（重要）
 
@@ -196,6 +201,7 @@ const filtered = index; // 現状は全件表示
 - [ ] KVキー体系が一貫しているか（`page:index:` / `page:question:` / `page-question-index:` の統一）
 - [ ] `page:{clientSlug}` を問い別親ページフローで上書きしていないか
 - [ ] TypeScriptエラーがないか（`npx tsc --noEmit` でゼロエラー確認）
+- [ ] `saveToRefBase()` が add / update 両ハンドラーで呼ばれているか
 - [ ] 最小差分で実装されているか
 
 ---
@@ -204,18 +210,26 @@ const filtered = index; // 現状は全件表示
 
 | # | 内容 | 対応予定 |
 |---|------|----------|
-| L-01 | llms.txt は page-index:aisle 固定。clientSlug別未対応 | Ver2 |
-| L-02 | Preview / 下書き機能なし。生成即公開 | Ver2 |
-| L-03 | clientSlug重複管理なし | Ver2 |
-| L-04 | /{clientSlug}/profile 未実装 | 次フェーズ |
-| L-05 | モニタリング機能なし（Emergence Scope連携予定） | Ver2 |
+| L-01 | llms.txt は page-index:aisle 固定。clientSlug別未対応 | Ver3以降 |
+| L-02 | Preview / 下書き機能なし。生成即公開 | Ver3以降 |
+| L-03 | clientSlug重複管理なし | Ver3以降 |
+| L-04 | RefBase KV は Aisle KV 共有（専用KVへの分離未完了） | RefBase Phase3 |
+| L-05 | モニタリング機能なし（Emergence Scope連携予定） | Ver3以降 |
+| L-06 | refbase:index:all から削除時の同期なし | Ver3以降 |
 
 ---
 
-## 11. 次に着手する優先事項（UX改善フェーズ）
+## 11. Ver2.0 完了済み事項
 
-1. ✅ **公開中ページ管理テーブル**（実装済み・テスト中）
-2. ⬜ **保存完了表示**（生成・更新・削除後のフィードバックUI）
-3. ⬜ **Add / Update の文言整理**
-4. ⬜ **Session管理画面**
-5. ⬜ **RefBase Preview導線**
+- ✅ 問い別出現子ページ構造刷新（answer / evidencePoints / scope / differentiation / faq）
+- ✅ Evidence Layer（TYPE_BASE_SCORE による優先スコア制御）
+- ✅ RefBase 実装（saveToRefBase / refbase-get.ts / refbase:index:all）
+- ✅ implement.ts JSON parse エラー修正
+
+## 12. 次に着手する優先事項
+
+1. ⬜ **保存完了表示**（生成・更新・削除後のフィードバックUI）
+2. ⬜ **Session管理画面**
+3. ⬜ **RefBase Preview導線**
+4. ⬜ **clientSlug重複管理**（Ver3）
+5. ⬜ **llms.txt clientSlug別対応**（Ver3）
