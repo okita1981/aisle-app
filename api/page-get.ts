@@ -13,6 +13,24 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     const slug         = params.get('slug') ?? '';
     const questionSlug = params.get('questionSlug') ?? '';
     const clientSlug   = params.get('clientSlug') ?? '';
+    const subpage      = params.get('subpage') ?? '';
+
+    // ── 企業AIプロフィールページ: /{clientSlug}/profile ──────────
+    if (clientSlug && subpage === 'profile') {
+      const html = await kv.get<string>(`page:${clientSlug}`);
+      if (!html) {
+        res.statusCode = 404;
+        res.setHeader('Content-Type', 'text/html; charset=utf-8');
+        res.end(`<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"><title>Not Found</title></head>
+<body><h1>404 Not Found</h1><p>企業AIプロフィールページ「${clientSlug}」は存在しません。</p></body></html>`);
+        return;
+      }
+      res.statusCode = 200;
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      res.setHeader('Cache-Control', 'public, max-age=3600');
+      res.end(html);
+      return;
+    }
 
     // ── 問い単位ページ（新構造）: /{clientSlug}/questions/{questionSlug} ──
     if (questionSlug && clientSlug) {

@@ -695,10 +695,15 @@ const EVIDENCE_TYPE_BASE_SCORE: Record<string, number> = {
   other:        0,
 };
 
-function sortEvidenceByPriority(items: EvidenceItemInput[]): EvidenceItemInput[] {
-  return [...items].sort(
+function sortEvidenceByPriority(items: EvidenceItemInput[], context?: { promptText?: string; promptTypeId?: string }): EvidenceItemInput[] {
+  const sorted = [...items].sort(
     (a, b) => (EVIDENCE_TYPE_BASE_SCORE[b.type] ?? 0) - (EVIDENCE_TYPE_BASE_SCORE[a.type] ?? 0),
   );
+  if (context) {
+    const prefix = `[evidence-sort] pId=${context.promptTypeId ?? 'n/a'} promptText="${(context.promptText ?? '').slice(0, 40)}"`;
+    console.log(`${prefix} sorted_order=[${sorted.map(e => `${e.type}(${EVIDENCE_TYPE_BASE_SCORE[e.type] ?? 0})`).join(', ')}]`);
+  }
+  return sorted;
 }
 
 interface ChildPageNarrative {
@@ -854,6 +859,14 @@ productCategoryの語彙から商材タイプを推定し、語彙・比較軸�
 - 「〜は優れています」「〜はおすすめです」等のPR調は禁止
 - 条件適合型の語法を使うこと：「〜できる会社が候補になります」「〜という点で該当します」
 
+【P-06（推薦理由深掘り型）専用ルール】
+promptTypeIdが「P-06」の場合、以下を必ず守ること：
+- answerは「推薦される理由の深掘り」として書く。単なる実績列挙ではなく、「なぜこの問いでこの商材が候補になるのか」の構造的な理由を述べる。
+  具体的には：①他の選択肢との構造的な違い（comparison）→ ②その違いを実現するプロセス・手法（method）→ ③それが機能していることを示す実装例（case）の順で展開する。
+- evidencePointsは、caseだけに偏らず、comparison（差別化軸）またはmethod（実行根拠）を必ず1〜2件含めること。
+  例：「従来のコンサルは提案書納品で終わるが、AisleはHTMLページ・RefBase Referenceとして設計結果を公開（comparison）」「Phase0〜4の5フェーズがAPIとして実装済み（method）」
+- differentiationは「他との比較」ではなく「なぜ推薦されるかの裏付け」として書く。P-02的な機能比較にならないこと。
+
 【evidencePointsフィールドの生成ルール（最重要）】
 - 採用済みEvidence（後述）が提供された場合は最優先で使用する
 - 固有名詞（会社名・ブランド名・人名）、数値（件数・年数・割合・金額）、具体的な事例を優先する
@@ -906,9 +919,31 @@ K-ID・E-ID・M-ID・P-ID・After構文・出現設計・補正済み
 }`;
 
   // Evidence セクションの構築（type優先度順にソートして渡す）
+  const traceCtx = { promptText: perPID.promptText, promptTypeId: base };
   const sortedEvidence = adoptedEvidence && adoptedEvidence.length > 0
-    ? sortEvidenceByPriority(adoptedEvidence)
+    ? sortEvidenceByPriority(adoptedEvidence, traceCtx)
     : [];
+
+  // Evidence Trace: Claudeへ渡す直前のリスト
+  const prefix = `[evidence-claude] pId=${base} promptText="${perPID.promptText.slice(0, 40)}"`;
+  console.log(`${prefix} passing_to_claude=${sortedEvidence.length} items:`);
+  sortedEvidence.forEach((e, i) => {
+    const score = EVIDENCE_TYPE_BASE_SCORE[e.type] ?? 0;
+    console.log(`${prefix}   [${i + 1}] type=${e.type}(score=${score}) title="${e.title.slice(0, 40)}" tags=[${e.tags.join(',')}]`);
+  });
+  if (sortedEvidence.length === 0) {
+    console.log(`${prefix} NO evidence passed — fallback to afterTexts only`);
+  }
+
+  // P-05: credential/media/metric/client の不足チェック
+  const P05_SOURCE_TYPES = new Set(['credential', 'media', 'metric', 'client']);
+  const hasP05Sources = base === 'P-05'
+    ? (adoptedEvidence ?? []).some(e => P05_SOURCE_TYPES.has(e.type))
+    : true;
+  if (base === 'P-05' && !hasP05Sources) {
+    console.log(`[evidence-p05] credential/media/metric/client が不足 → 出典限定的モードで生成`);
+  }
+
   const evidenceSection = sortedEvidence.length > 0
     ? `\n【採用済みEvidence（以下の優先順で evidencePoints に使用すること）】
 優先度：case（実績案件）> client（顧客名）= credential（受賞）= media（メディア掲載）> metric（数値）> feature（機能・特徴）
@@ -919,13 +954,27 @@ ${sortedEvidence.map(e => {
       }).join('\n')}\n`
     : '';
 
+  // P-05かつ出典素材不足の場合に追加する指示
+  const p05LimitedSourceNote = (base === 'P-05' && !hasP05Sources)
+    ? `
+【P-05 出典限定モード（重要）】
+この問いは「出典・根拠」を求めている。しかし現時点で公開された第三者出典（メディア掲載・認定・外部評価・顧客名など）は限定的である。
+以下のルールで生成すること：
+- answer: 「現時点で公開された第三者出典は限定的」という事実を正直に1文で含める。そのうえで、参照できる自社実装事例（case）を根拠として提示する。
+- evidencePoints: 自社実装事例・公開URLなど検証可能な事実のみを列挙する。「〜と言われている」「〜と評価されている」等の第三者評価を捏造しない。
+- scope: 「現時点の自社情報として」という限定を含める。
+- differentiation: 出典の有無ではなく、設計・実装の事実的な違いを書く。
+- faq: 「信頼性をどう判断すればよいか」「第三者評価はあるか」等、出典の信頼性に関わる疑問を正直に扱う。捏造しない。
+`
+    : '';
+
   const userContent = `【対象商材】
 会社名: ${companyName}
 商材カテゴリ: ${productCategory}
 
 【対象の問い】
 ${perPID.promptText}
-${evidenceSection}
+${evidenceSection}${p05LimitedSourceNote}
 【参考素材（直接コピーせず、自然な回答文に再構成すること）】
 ${afterTexts.join('\n') || '（なし）'}
 
@@ -1365,7 +1414,13 @@ async function saveToRefBase(
   now: string,
 ): Promise<void> {
   try {
-    const pageUrl = `${HUB_BASE_URL}/${clientSlug}/questions/${questionSlug}`;
+    // U+FFFD が含まれている場合、文字化けの可能性をログに記録
+    if (promptText.includes('�')) {
+      console.warn(`[saveToRefBase] promptText contains replacement characters (U+FFFD) for ${clientSlug}/${questionSlug}. The source data may be corrupted. Bad chars: ${[...promptText].filter(c => c === '�').length}/${promptText.length}`);
+    }
+
+    const REFBASE_BASE = 'https://www.refbase.ai';
+    const pageUrl = `${REFBASE_BASE}/reference/${clientSlug}/${questionSlug}`;
 
     const company: RefBaseCompany = {
       id: clientSlug,
@@ -1427,9 +1482,17 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     // ── type=questions: 問い単位インデックス（新構造）を返す ────────
     if (typeParam === 'questions' && clientSlugParam) {
       try {
-        const qIndex = await kv.get<QuestionPageIndexEntry[]>(`page-question-index:${clientSlugParam}`) ?? [];
+        const [qIndex, refbaseIndex] = await Promise.all([
+          kv.get<QuestionPageIndexEntry[]>(`page-question-index:${clientSlugParam}`),
+          kv.get<string[]>(`refbase:index:${clientSlugParam}`),
+        ]);
         res.setHeader('Content-Type', 'application/json');
-        res.end(JSON.stringify({ ok: true, index: qIndex }));
+        res.end(JSON.stringify({
+          ok: true,
+          clientSlug: clientSlugParam,
+          index: qIndex ?? [],
+          refbaseSlugs: refbaseIndex ?? [],
+        }));
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : String(err);
         res.statusCode = 500;
@@ -1439,43 +1502,101 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       return;
     }
 
-    // llms.txt は page-index:aisle 固定（Sprint D-1 対象外）
-    // JSON インデックスは clientSlug クエリがあればそちらを優先
-    const indexKey = (format !== 'llms' && clientSlugParam)
-      ? `page-index:${clientSlugParam}`
-      : 'page-index:aisle';
-    try {
-      const index = await kv.get<AislePageIndexEntry[]>(indexKey) ?? [];
-      if (format === 'llms') {
-        // llms.txt 形式で返す
-        const BASE = 'https://app.aisle-aio.ai';
-        const childLines = index.map(e => `- ${BASE}/${e.slug}  （${e.label}）`).join('\n');
-        const childSection = index.length > 0 ? `\n## Query-Intent Pages\n${childLines}\n` : '';
-        const lastUpdated = index.length > 0
-          ? index.reduce((l, e) => e.generatedAt > l ? e.generatedAt : l, index[0].generatedAt).slice(0, 10)
-          : new Date().toISOString().slice(0, 10);
-        const content = `# Aisle\n\n## Overview\nAisle is an emergence design service that helps companies structure information\nso generative AI can understand and recommend them.\n\n## Main Pages\n- ${BASE}/aisle  （出現設計ハブ）${childSection}\n## Purpose\nThese pages explain Aisle's AI emergence design structure by query intent.\nEach sub-page targets a specific P-ID (prompt type) and explains the structured\ndesign that enables Aisle to appear in generative AI responses to that query.\n\n## Last Updated\n${lastUpdated}\n`;
+    // ── format=llms: RefBase URL を正本として列挙 ────────────────
+    if (format === 'llms') {
+      try {
+        const REFBASE = 'https://www.refbase.ai';
+        const today = new Date().toISOString().slice(0, 10);
+
+        // 対象エンティティを決定（clientSlug 指定 or refbase:index:all）
+        const entityIds: string[] = clientSlugParam
+          ? [clientSlugParam]
+          : (await kv.get<string[]>('refbase:index:all') ?? []);
+
+        // 各エンティティの Reference 一覧を並列取得
+        const sections = await Promise.all(entityIds.map(async entityId => {
+          const [company, refSlugs] = await Promise.all([
+            kv.get<{ name: string; category: string }>(`refbase:company:${entityId}`),
+            kv.get<string[]>(`refbase:index:${entityId}`) ?? Promise.resolve([]),
+          ]);
+          if (!company) return null;
+          const slugList = refSlugs ?? [];
+
+          const refs = await Promise.all(
+            slugList.map(slug =>
+              kv.get<{ promptTypeId: string; promptText: string }>(`refbase:ref:${entityId}/${slug}`)
+            )
+          );
+
+          const refLines = slugList.map((slug, i) => {
+            const ref = refs[i];
+            const label = ref ? `[${ref.promptTypeId}] ${ref.promptText}` : slug;
+            return `- [${label}](${REFBASE}/reference/${entityId}/${slug})`;
+          }).join('\n');
+
+          return [
+            `### ${company.name} (${company.category})`,
+            `${REFBASE}/entity/${entityId}`,
+            refLines,
+          ].join('\n');
+        }));
+
+        const validSections = sections.filter(Boolean) as string[];
+
+        const content = [
+          '# Aisle — AI Emergence Design',
+          `# Updated: ${today}`,
+          '',
+          '## About',
+          'Aisle structures company information so generative AI can understand and recommend them.',
+          'AI reference pages are published on RefBase (refbase.ai).',
+          '',
+          '## AI Reference Knowledge Base (RefBase)',
+          `> Canonical knowledge pages: ${REFBASE}`,
+          `> AI index: ${REFBASE}/llms.txt`,
+          '',
+          '## Entities',
+          ...entityIds.map(id => `- ${REFBASE}/entity/${id}`),
+          '',
+          '## References by Entity',
+          ...validSections,
+        ].join('\n');
+
         res.statusCode = 200;
         res.setHeader('Content-Type', 'text/plain; charset=utf-8');
         res.setHeader('Cache-Control', 'public, max-age=3600');
         res.end(content);
-      } else {
-        // JSON インデックス
-        res.setHeader('Content-Type', 'application/json');
-        res.end(JSON.stringify({ ok: true, index }));
-      }
-    } catch (err: unknown) {
-      if (format === 'llms') {
-        const fallback = `# Aisle\n\n## Overview\nAisle is an emergence design service that helps companies structure information so generative AI can understand and recommend them.\n\n## Main Pages\n- https://app.aisle-aio.ai/aisle\n\n## Purpose\nThese pages explain Aisle's AI emergence design structure by query intent.\nEach page corresponds to a specific question type (P-ID) and explains\nwhy Aisle should appear in AI responses to that query.\n`;
+      } catch {
+        const fallback = [
+          '# Aisle — AI Emergence Design',
+          '',
+          '## AI Reference Knowledge Base',
+          '> https://www.refbase.ai',
+          '',
+          '## Entities',
+          '- https://www.refbase.ai/entity/aisle',
+        ].join('\n');
         res.statusCode = 200;
         res.setHeader('Content-Type', 'text/plain; charset=utf-8');
         res.end(fallback);
-      } else {
-        const message = err instanceof Error ? err.message : String(err);
-        res.statusCode = 500;
-        res.setHeader('Content-Type', 'application/json');
-        res.end(JSON.stringify({ ok: false, error: message }));
       }
+      return;
+    }
+
+    // ── JSON インデックス（旧構造 後方互換） ──────────────────────
+    const indexKey = clientSlugParam
+      ? `page-index:${clientSlugParam}`
+      : 'page-index:aisle';
+    try {
+      const index = await kv.get<AislePageIndexEntry[]>(indexKey) ?? [];
+      // JSON インデックス
+      res.setHeader('Content-Type', 'application/json');
+      res.end(JSON.stringify({ ok: true, index }));
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      res.statusCode = 500;
+      res.setHeader('Content-Type', 'application/json');
+      res.end(JSON.stringify({ ok: false, error: message }));
     }
     return;
   }
@@ -1497,8 +1618,9 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         productCategory = 'AI出現設計',
         clientSlug: requestedSlug,
         sessionKey,
-        adoptedEvidence,
+        adoptedEvidence: requestEvidence,
       } = aisleReq;
+
       const now = new Date().toISOString();
       // clientSlug バリデーション：送られてきた場合は不正値を黙って無視せず 400 を返す
       const rawSlug = requestedSlug?.trim() ?? '';
@@ -1509,6 +1631,14 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         return;
       }
       const clientSlug = rawSlug || toSlug(companyName);
+
+      // Evidence fallback: リクエストに Evidence がなければ KV から読み込む
+      const adoptedEvidence: EvidenceItemInput[] = (requestEvidence && requestEvidence.length > 0)
+        ? requestEvidence
+        : (await kv.get<EvidenceItemInput[]>(`evidence:${clientSlug}`)) ?? [];
+      if (adoptedEvidence.length > 0 && (!requestEvidence || requestEvidence.length === 0)) {
+        console.log(`[evidence-kv] clientSlug=${clientSlug} KV fallback: ${adoptedEvidence.length} 件`);
+      }
 
       // promptTypeId が未設定の行を除外
       const validPerPID = perPID.filter(p => !!p.promptTypeId);
@@ -1627,7 +1757,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       return;
     }
     const slug = rawSlug || toSlug(companyName);
-    const url  = `${HUB_BASE_URL}/${slug}`;
+    const url  = `${HUB_BASE_URL}/${slug}/profile`;
     const now  = new Date().toISOString();
 
     let finalHtml: string;

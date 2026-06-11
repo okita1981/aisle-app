@@ -223,16 +223,22 @@ function fmtDate(iso: string): string {
   return `${mm}/${dd} ${hh}:${mi}`;
 }
 
-// ─── 公開中ページ管理テーブル ─────────────────────────────────
+// ─── 生成済みページ一覧テーブル ──────────────────────────────
+
+const HUB_BASE = 'https://app.aisle-aio.ai';
+const REFBASE_BASE = 'https://www.refbase.ai/reference';
 
 interface PublishedPageTableProps {
   index: AisleIndexEntry[];
   clientSlugInput: string;
   onRefresh: () => void;
-  onUpdate: (entry: AisleIndexEntry) => Promise<void>;
-  onDelete: (entry: AisleIndexEntry) => Promise<void>;
-  isUpdatingSlug: string | null;
-  isDeletingSlug: string | null;
+  onUpdate?: (entry: AisleIndexEntry) => Promise<void>;
+  onDelete?: (entry: AisleIndexEntry) => Promise<void>;
+  isUpdatingSlug?: string | null;
+  isDeletingSlug?: string | null;
+  refbaseSlugs: Set<string>;
+  /** true のとき更新/削除ボタンを非表示にする（閲覧専用モード） */
+  readOnly?: boolean;
 }
 
 function PublishedPageTable({
@@ -243,18 +249,17 @@ function PublishedPageTable({
   onDelete,
   isUpdatingSlug,
   isDeletingSlug,
+  refbaseSlugs,
+  readOnly = false,
 }: PublishedPageTableProps) {
-  // 将来のP-IDフィルターはここに state を追加するだけで対応可能
-  // const [filterPId, setFilterPId] = useState<string | null>(null);
-  // const filtered = filterPId ? index.filter(e => e.promptTypeId === filterPId) : index;
-  const filtered = index; // 現状は全件表示
+  const filtered = index;
 
   return (
     <div className="border border-slate-200 rounded-xl overflow-hidden">
       {/* ヘッダー */}
       <div className="bg-slate-50 px-4 py-2.5 flex items-center justify-between border-b border-slate-200">
         <div className="flex items-center gap-2">
-          <span className="text-sm font-semibold text-slate-700">公開中のページ</span>
+          <span className="text-sm font-semibold text-slate-700">生成済みページ一覧</span>
           <span className="text-xs font-medium text-slate-400 bg-slate-200 rounded-full px-2 py-0.5">
             {index.length}件
           </span>
@@ -271,7 +276,7 @@ function PublishedPageTable({
       {filtered.length === 0 && (
         <div className="py-10 text-center">
           <div className="text-3xl mb-2">📭</div>
-          <p className="text-sm font-medium text-slate-500">まだ公開中のページはありません</p>
+          <p className="text-sm font-medium text-slate-500">まだ生成済みのページはありません</p>
           <p className="text-xs text-slate-400 mt-1">「新規ページを追加」モードで生成してください</p>
         </div>
       )}
@@ -279,19 +284,27 @@ function PublishedPageTable({
       {/* テーブル */}
       {filtered.length > 0 && (
         <div className="overflow-x-auto">
-          <table className="w-full text-sm min-w-[680px]">
+          <table className="w-full text-sm min-w-[820px]">
             <thead>
               <tr className="border-b border-slate-100 bg-white">
-                <th className="px-4 py-2.5 text-left text-xs font-semibold text-slate-500 w-28">P-ID</th>
-                <th className="px-4 py-2.5 text-left text-xs font-semibold text-slate-500">問い文</th>
-                <th className="px-4 py-2.5 text-left text-xs font-semibold text-slate-500 w-44">Slug</th>
-                <th className="px-4 py-2.5 text-left text-xs font-semibold text-slate-500 w-24">生成日時</th>
-                <th className="px-4 py-2.5 text-center text-xs font-semibold text-slate-500 w-36">操作</th>
+                <th className="px-3 py-2.5 text-left text-xs font-semibold text-slate-500 w-28">P-ID</th>
+                <th className="px-3 py-2.5 text-left text-xs font-semibold text-slate-500">問い文</th>
+                <th className="px-3 py-2.5 text-center text-xs font-semibold text-emerald-600 w-20">RefBase</th>
+                <th className="px-3 py-2.5 text-center text-xs font-semibold text-slate-400 w-20">Preview</th>
+                <th className="px-3 py-2.5 text-center text-xs font-semibold text-slate-500 w-32">ステータス</th>
+                <th className="px-3 py-2.5 text-left text-xs font-semibold text-slate-500 w-20">生成日時</th>
+                {!readOnly && (
+                  <th className="px-3 py-2.5 text-center text-xs font-semibold text-slate-500 w-24">操作</th>
+                )}
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {filtered.map(entry => {
-                const qUrl = `https://app.aisle-aio.ai/${clientSlugInput || '...'}/questions/${entry.questionSlug}`;
+                const aisleUrl = `${HUB_BASE}/${clientSlugInput || '...'}/questions/${entry.questionSlug}`;
+                const isInRefbase = refbaseSlugs.has(entry.questionSlug);
+                const refbaseUrl = isInRefbase
+                  ? `${REFBASE_BASE}/${clientSlugInput}/${entry.questionSlug}`
+                  : null;
                 const isDeleting = isDeletingSlug === entry.questionSlug;
                 const isUpdating = isUpdatingSlug === entry.questionSlug;
                 const isBusy = isDeleting || isUpdating;
@@ -300,7 +313,7 @@ function PublishedPageTable({
                 return (
                   <tr key={entry.questionSlug} className={`hover:bg-slate-50 transition-colors ${isBusy ? 'opacity-60' : ''}`}>
                     {/* P-ID */}
-                    <td className="px-4 py-3 align-top">
+                    <td className="px-3 py-3 align-top">
                       <div className={`inline-flex items-center px-2 py-0.5 rounded border text-[11px] font-bold ${pidBadgeClass(entry.promptTypeId)}`}>
                         {entry.promptTypeId}
                       </div>
@@ -308,59 +321,82 @@ function PublishedPageTable({
                     </td>
 
                     {/* 問い文 */}
-                    <td className="px-4 py-3 align-top">
-                      <div
-                        className="text-sm text-slate-700 leading-snug line-clamp-2"
-                        title={entry.promptText}
-                      >
+                    <td className="px-3 py-3 align-top">
+                      <div className="text-xs text-slate-700 leading-snug line-clamp-2" title={entry.promptText}>
                         {entry.promptText}
                       </div>
-                    </td>
-
-                    {/* Slug */}
-                    <td className="px-4 py-3 align-top">
-                      <code className="text-[11px] text-slate-400 break-all leading-relaxed">
-                        /{clientSlugInput || '...'}/questions/<br />{entry.questionSlug}
+                      <code className="text-[10px] text-slate-400 mt-0.5 block">
+                        /{clientSlugInput || '...'}/questions/{entry.questionSlug}
                       </code>
                     </td>
 
-                    {/* 生成日時 */}
-                    <td className="px-4 py-3 align-top">
-                      <span className="text-xs text-slate-500 whitespace-nowrap">{fmtDate(entry.generatedAt)}</span>
-                    </td>
-
-                    {/* 操作 */}
-                    <td className="px-4 py-3 align-top">
-                      <div className="flex items-center gap-1.5 justify-center">
-                        {/* 開く */}
+                    {/* RefBase URL（正本・主リンク） */}
+                    <td className="px-3 py-3 align-top text-center">
+                      {refbaseUrl ? (
                         <a
-                          href={qUrl}
+                          href={refbaseUrl}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="px-2.5 py-1 text-xs text-indigo-600 border border-indigo-200 rounded-lg hover:bg-indigo-50 transition-colors whitespace-nowrap"
+                          className="px-2 py-1 text-[11px] font-semibold text-emerald-700 border border-emerald-300 bg-emerald-50 rounded-lg hover:bg-emerald-100 transition-colors whitespace-nowrap"
                         >
                           開く
                         </a>
-
-                        {/* 更新 */}
-                        <button
-                          onClick={() => { void onUpdate(entry); }}
-                          disabled={isBusy}
-                          className="px-2.5 py-1 text-xs text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-100 transition-colors disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap"
-                        >
-                          {isUpdating ? '更新中…' : '更新'}
-                        </button>
-
-                        {/* 削除 */}
-                        <button
-                          onClick={() => { void onDelete(entry); }}
-                          disabled={isBusy}
-                          className="px-2.5 py-1 text-xs text-red-600 border border-red-200 rounded-lg hover:bg-red-50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap"
-                        >
-                          {isDeleting ? '削除中…' : '削除'}
-                        </button>
-                      </div>
+                      ) : (
+                        <span className="text-[11px] text-slate-300">—</span>
+                      )}
                     </td>
+
+                    {/* Aisle URL（Preview・確認用） */}
+                    <td className="px-3 py-3 align-top text-center">
+                      <a
+                        href={aisleUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="px-2 py-1 text-[11px] text-slate-400 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors whitespace-nowrap"
+                      >
+                        Preview
+                      </a>
+                    </td>
+
+                    {/* ステータス */}
+                    <td className="px-3 py-3 align-top text-center">
+                      {isInRefbase ? (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-50 border border-emerald-200 text-[10px] font-semibold text-emerald-700 whitespace-nowrap">
+                          ● Aisle + RefBase
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-50 border border-slate-200 text-[10px] font-medium text-slate-500 whitespace-nowrap">
+                          Aisle のみ
+                        </span>
+                      )}
+                    </td>
+
+                    {/* 生成日時 */}
+                    <td className="px-3 py-3 align-top">
+                      <span className="text-[11px] text-slate-500 whitespace-nowrap">{fmtDate(entry.generatedAt)}</span>
+                    </td>
+
+                    {/* 操作（readOnly でない場合のみ） */}
+                    {!readOnly && (
+                      <td className="px-3 py-3 align-top">
+                        <div className="flex items-center gap-1 justify-center">
+                          <button
+                            onClick={() => { void onUpdate?.(entry); }}
+                            disabled={isBusy}
+                            className="px-2 py-1 text-[11px] text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-100 transition-colors disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap"
+                          >
+                            {isUpdating ? '更新中…' : '更新'}
+                          </button>
+                          <button
+                            onClick={() => { void onDelete?.(entry); }}
+                            disabled={isBusy}
+                            className="px-2 py-1 text-[11px] text-red-600 border border-red-200 rounded-lg hover:bg-red-50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap"
+                          >
+                            {isDeleting ? '削除中…' : '削除'}
+                          </button>
+                        </div>
+                      </td>
+                    )}
                   </tr>
                 );
               })}
@@ -388,6 +424,7 @@ export function Phase4Implementation() {
     aisleResult, setAisleResult,
     generatedPage, setGeneratedPage,
     externalUrls, setExternalUrls,
+    evidenceStore,
   } = useAppStore();
 
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -428,6 +465,31 @@ export function Phase4Implementation() {
   const [isDeletingAisleSlug, setIsDeletingAisleSlug] = useState<string | null>(null);
   const [isUpdatingAisleSlug, setIsUpdatingAisleSlug] = useState<string | null>(null);
 
+  // ── RefBase 登録済スラッグセット ─────────────────────────────
+  const [refbaseSlugs, setRefbaseSlugs] = useState<Set<string>>(new Set());
+
+  // ── スタンドアロン「生成済みページ一覧」──────────────────────
+  const [standaloneSlug, setStandaloneSlug] = useState('');
+  const [standaloneIndex, setStandaloneIndex] = useState<AisleIndexEntry[]>([]);
+  const [standaloneRefbaseSlugs, setStandaloneRefbaseSlugs] = useState<Set<string>>(new Set());
+  const [isFetchingStandalone, setIsFetchingStandalone] = useState(false);
+  const [standaloneFetched, setStandaloneFetched] = useState(false);
+
+  const fetchStandaloneIndex = useCallback(async (slug: string) => {
+    if (!slug) return;
+    setIsFetchingStandalone(true);
+    try {
+      const resp = await fetch(`/api/page-generate?clientSlug=${encodeURIComponent(slug)}&type=questions`);
+      const json = await resp.json() as { ok: boolean; index: AisleIndexEntry[]; refbaseSlugs?: string[] };
+      if (json.ok) {
+        setStandaloneIndex(json.index ?? []);
+        setStandaloneRefbaseSlugs(new Set(json.refbaseSlugs ?? []));
+        setStandaloneFetched(true);
+      }
+    } catch { /* サイレント失敗 */ }
+    finally { setIsFetchingStandalone(false); }
+  }, []);
+
   // ── clientSlug（公開URL識別子） ──────────────────────────────────
   const [clientSlugInput, setClientSlugInput] = useState('');
   const [clientSlugError, setClientSlugError] = useState('');
@@ -448,22 +510,26 @@ export function Phase4Implementation() {
     }
   }, [phase2Result?.companyName]);
 
-  // ── fetchAisleIndex: 問い単位インデックス（新構造）を取得 ─────────
+  // ── fetchAisleIndex: 問い単位インデックス + RefBase スラッグを一括取得 ──
   const fetchAisleIndex = useCallback(async (clientSlug?: string) => {
     try {
       const qs = clientSlug
         ? `?clientSlug=${encodeURIComponent(clientSlug)}&type=questions`
         : '?type=questions';
       const resp = await fetch(`/api/page-generate${qs}`);
-      const json = await resp.json() as { ok: boolean; index: AisleIndexEntry[] };
-      if (json.ok) setExistingAisleIndex(json.index ?? []);
+      const json = await resp.json() as { ok: boolean; index: AisleIndexEntry[]; refbaseSlugs?: string[] };
+      if (json.ok) {
+        setExistingAisleIndex(json.index ?? []);
+        setRefbaseSlugs(new Set(json.refbaseSlugs ?? []));
+      }
     } catch { /* サイレント失敗 */ }
   }, []);
 
   // phase2Result が揃ったらインデックスを取得（companyNameから自動生成したslugで）
   useEffect(() => {
     if (phase2Result) {
-      void fetchAisleIndex(computeSlug(phase2Result.companyName) ?? undefined);
+      const slug = computeSlug(phase2Result.companyName) ?? undefined;
+      void fetchAisleIndex(slug);
     }
   }, [phase2Result, fetchAisleIndex]);
 
@@ -498,6 +564,9 @@ export function Phase4Implementation() {
           companyName: phase2Result.companyName,
           productCategory: phase2Result.productCategory,
           clientSlug: clientSlugInput || undefined,
+          adoptedEvidence: evidenceStore?.adopted?.items?.length
+            ? evidenceStore.adopted.items
+            : undefined,
           perPID: validPerPID.map(p => ({
             pId: p.pId,
             promptTypeId: p.promptTypeId,
@@ -547,6 +616,9 @@ export function Phase4Implementation() {
           companyName: phase2Result.companyName,
           productCategory: phase2Result.productCategory,
           clientSlug: clientSlugInput || undefined,
+          adoptedEvidence: evidenceStore?.adopted?.items?.length
+            ? evidenceStore.adopted.items
+            : undefined,
           perPID: validPerPID.map(p => ({
             pId: p.pId,
             promptTypeId: p.promptTypeId,
@@ -855,6 +927,41 @@ export function Phase4Implementation() {
 
   return (
     <div className="space-y-5">
+
+      {/* ── 生成済みページ一覧（スタンドアロン・常時表示） ────────── */}
+      <div className="bg-white border border-slate-200 rounded-2xl p-5 space-y-4">
+        <div>
+          <div className="text-sm font-bold text-slate-800 mb-0.5">📋 Published Pages — 生成済みページ一覧</div>
+          <p className="text-xs text-slate-500">clientSlug を入力して、生成済みの問い別AIページを確認できます。</p>
+        </div>
+        <div className="flex items-center gap-2 flex-wrap">
+          <input
+            type="text"
+            value={standaloneSlug}
+            onChange={e => setStandaloneSlug(e.target.value.toLowerCase())}
+            onKeyDown={e => { if (e.key === 'Enter') void fetchStandaloneIndex(standaloneSlug); }}
+            placeholder="clientSlug（例：aisle）"
+            className="w-52 px-3 py-2 border border-slate-300 rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-indigo-400"
+          />
+          <button
+            onClick={() => void fetchStandaloneIndex(standaloneSlug)}
+            disabled={!standaloneSlug || isFetchingStandalone}
+            className="px-4 py-2 rounded-lg text-sm font-semibold transition-all bg-indigo-600 text-white hover:bg-indigo-700 disabled:bg-slate-300 disabled:text-slate-500 disabled:cursor-not-allowed"
+          >
+            {isFetchingStandalone ? '取得中…' : '一覧を取得'}
+          </button>
+        </div>
+        {standaloneFetched && (
+          <PublishedPageTable
+            index={standaloneIndex}
+            clientSlugInput={standaloneSlug}
+            onRefresh={() => void fetchStandaloneIndex(standaloneSlug)}
+            refbaseSlugs={standaloneRefbaseSlugs}
+            readOnly
+          />
+        )}
+      </div>
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -1193,6 +1300,7 @@ export function Phase4Implementation() {
                   onDelete={handleDeleteAislePage}
                   isUpdatingSlug={isUpdatingAisleSlug}
                   isDeletingSlug={isDeletingAisleSlug}
+                  refbaseSlugs={refbaseSlugs}
                 />
 
                 {/* 結果表示 */}
@@ -1290,7 +1398,7 @@ export function Phase4Implementation() {
                     <li>・<span className="font-medium">診断レポート（PDF）</span>：なぜ出ないかの構造分析と実装設計書</li>
                     <li>・<span className="font-medium">企業AIプロフィールページ（HTML）</span>：AIが参照・理解しやすい情報ページ</li>
                   </ul>
-                  <p className="font-medium pt-1">公開URL：<code className="bg-white px-1 rounded text-xs">app.aisle-aio.ai/{clientSlugInput || '（公開URL識別子を設定してください）'}</code></p>
+                  <p className="font-medium pt-1">公開URL：<code className="bg-white px-1 rounded text-xs">app.aisle-aio.ai/{clientSlugInput || '（公開URL識別子を設定してください）'}/profile</code></p>
                 </div>
 
                 {/* 外部リソース（複数URL） */}
