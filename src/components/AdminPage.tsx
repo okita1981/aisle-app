@@ -273,18 +273,6 @@ export function AdminPage() {
                 value={clientSlugInput}
                 onChange={e => handleInputChange(e.target.value)}
                 onKeyDown={e => {
-                  if (e.key === 'Enter') {
-                    e.preventDefault();
-                    if (suggestions.length === 1) {
-                      setClientSlugInput(suggestions[0]);
-                      setSuggestions([]);
-                      setShowSuggestions(false);
-                      loadEntity(suggestions[0]);
-                    } else {
-                      setShowSuggestions(false);
-                      loadEntity(clientSlugInput.trim());
-                    }
-                  }
                   if (e.key === 'Escape') { setShowSuggestions(false); }
                 }}
                 placeholder="例: aisle（部分一致で候補を表示）"
@@ -308,7 +296,18 @@ export function AdminPage() {
             </div>
             <button
               type="button"
-              onClick={() => loadEntity(clientSlugInput)}
+              onClick={() => {
+                if (suggestions.length === 1) {
+                  setClientSlugInput(suggestions[0]);
+                  setSuggestions([]);
+                  setShowSuggestions(false);
+                  loadEntity(suggestions[0]);
+                } else if (suggestions.length > 1) {
+                  setError('候補を選択してください');
+                } else {
+                  loadEntity(clientSlugInput.trim());
+                }
+              }}
               disabled={loading || !clientSlugInput}
               className="px-5 py-2.5 bg-indigo-600 text-white rounded-lg text-sm font-semibold hover:bg-indigo-700 disabled:opacity-50 transition-colors"
             >
