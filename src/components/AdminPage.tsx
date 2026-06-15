@@ -307,6 +307,12 @@ export function AdminPage() {
               {loading ? '読み込み中...' : '読み込む'}
             </button>
           </div>
+          {/* デバッグ表示（動作確認後に削除） */}
+          <div className="mt-2 text-[11px] font-mono text-slate-400 space-y-0.5">
+            <div>allSlugs: [{allSlugs.join(', ')}] ({allSlugs.length}件)</div>
+            <div>suggestions: [{suggestions.join(', ')}]</div>
+            <div>showSuggestions: {String(showSuggestions)}</div>
+          </div>
           {error && (
             <p className="mt-2 text-sm text-red-600 flex items-center gap-1.5">
               <span>⚠️</span>{error}
