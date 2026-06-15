@@ -47,6 +47,15 @@ interface DeleteConfirm {
   promptTypeId: string;
 }
 
+interface EntityDeleteConfirm {
+  clientSlug: string;
+  name: string;
+  entityType: string;
+  referenceCount: number;
+  referenceSlugs: string[];
+  externalLinksCount: number;
+}
+
 // ── 定数 ────────────────────────────────────────────────────────
 const REFBASE_BASE = 'https://www.refbase.ai';
 const AISLE_BASE   = 'https://app.aisle-aio.ai';
@@ -81,9 +90,14 @@ export function AdminPage() {
   const [showSuggestions, setShowSuggestions] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // 削除フロー
+  // Reference 削除フロー
   const [deletingSlug, setDeletingSlug]   = useState<string | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<DeleteConfirm | null>(null);
+
+  // Entity 削除フロー
+  const [entityDeleteConfirm, setEntityDeleteConfirm] = useState<EntityDeleteConfirm | null>(null);
+  const [entityDeleteInput, setEntityDeleteInput]     = useState('');
+  const [isDeletingEntity, setIsDeletingEntity]       = useState(false);
 
   // プレビューモーダル
   const [previewData, setPreviewData]       = useState<AdminReferenceDetail | null>(null);
@@ -197,6 +211,35 @@ export function AdminPage() {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setDeletingSlug(null);
+    }
+  };
+
+  // ── Entity 削除 ───────────────────────────────────────────────
+  const handleEntityDelete = async () => {
+    if (!entityDeleteConfirm || entityDeleteInput !== entityDeleteConfirm.clientSlug) return;
+    setIsDeletingEntity(true);
+    try {
+      const resp = await fetch('/api/entity-delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          clientSlug: entityDeleteConfirm.clientSlug,
+          confirmSlug: entityDeleteInput,
+        }),
+      });
+      const json = await resp.json() as { ok: boolean; error?: string };
+      if (!json.ok) throw new Error(json.error ?? 'Entity削除に失敗しました');
+      setEntityDeleteConfirm(null);
+      setEntityDeleteInput('');
+      setData(null);
+      setClientSlugInput('');
+      setLoadedSlug('');
+      // allSlugs を更新
+      setAllSlugs(prev => prev.filter(s => s !== entityDeleteConfirm.clientSlug));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setIsDeletingEntity(false);
     }
   };
 
@@ -335,6 +378,23 @@ export function AdminPage() {
                       </ul>
                     </div>
                   )}
+
+                  {/* Entity 削除ボタン */}
+                  <div className="pt-4 border-t border-slate-100 flex justify-end">
+                    <button
+                      onClick={() => setEntityDeleteConfirm({
+                        clientSlug: data.company!.id,
+                        name: data.company!.name,
+                        entityType: data.company!.entityType ?? 'company',
+                        referenceCount: data.references.length,
+                        referenceSlugs: data.references.map(r => r.id),
+                        externalLinksCount: (data.company!.externalLinks ?? []).filter(u => u.url.trim()).length,
+                      })}
+                      className="px-4 py-2 text-xs font-medium bg-red-50 border border-red-200 rounded-lg text-red-600 hover:bg-red-100 transition-colors"
+                    >
+                      🗑 Entity を削除する
+                    </button>
+                  </div>
                 </div>
               ) : (
                 <p className="text-sm text-slate-400">
@@ -637,6 +697,114 @@ export function AdminPage() {
               </button>
               <button
                 onClick={() => setDeleteConfirm(null)}
+                className="flex-1 px-4 py-2.5 bg-slate-100 text-slate-700 rounded-xl text-sm font-medium hover:bg-slate-200 transition-colors"
+              >
+                キャンセル
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* ── Entity削除確認ダイアログ ──────────────────────────── */}
+      {entityDeleteConfirm && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6">
+            <div className="flex items-start gap-3 mb-5">
+              <span className="text-2xl shrink-0">⚠️</span>
+              <div className="flex-1 min-w-0">
+                <h3 className="font-bold text-slate-800 text-base leading-snug mb-1">
+                  Entity を完全削除しますか？
+                </h3>
+                <p className="text-xs text-slate-500">この操作は取り消せません。</p>
+              </div>
+            </div>
+
+            {/* 削除対象の情報 */}
+            <div className="bg-red-50 border border-red-200 rounded-lg px-4 py-3 mb-4 space-y-1.5 text-sm">
+              <div className="flex items-start gap-2">
+                <span className="text-xs text-red-400 w-24 shrink-0 mt-0.5">entityId</span>
+                <code className="font-mono text-red-700 break-all">{entityDeleteConfirm.clientSlug}</code>
+              </div>
+              <div className="flex items-start gap-2">
+                <span className="text-xs text-red-400 w-24 shrink-0 mt-0.5">name</span>
+                <span className="text-red-800 font-medium">{entityDeleteConfirm.name}</span>
+              </div>
+              <div className="flex items-start gap-2">
+                <span className="text-xs text-red-400 w-24 shrink-0 mt-0.5">entityType</span>
+                <code className="text-xs font-mono text-red-700">{entityDeleteConfirm.entityType}</code>
+              </div>
+              <div className="flex items-start gap-2">
+                <span className="text-xs text-red-400 w-24 shrink-0 mt-0.5">References</span>
+                <span className="text-red-800 font-medium">{entityDeleteConfirm.referenceCount}件</span>
+              </div>
+              {entityDeleteConfirm.externalLinksCount > 0 && (
+                <div className="flex items-start gap-2">
+                  <span className="text-xs text-red-400 w-24 shrink-0 mt-0.5">外部情報源</span>
+                  <span className="text-red-800">{entityDeleteConfirm.externalLinksCount}件</span>
+                </div>
+              )}
+            </div>
+
+            {/* 削除されるReference slug一覧 */}
+            {entityDeleteConfirm.referenceSlugs.length > 0 && (
+              <div className="mb-4">
+                <p className="text-xs font-semibold text-slate-500 mb-1.5">削除されるReference：</p>
+                <ul className="bg-slate-50 rounded-lg px-3 py-2 space-y-0.5 max-h-28 overflow-y-auto">
+                  {entityDeleteConfirm.referenceSlugs.map(slug => (
+                    <li key={slug} className="text-[11px] font-mono text-slate-500 flex items-center gap-1.5">
+                      <span className="text-red-400">✕</span>{slug}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {/* 削除対象キー説明 */}
+            <div className="mb-4">
+              <p className="text-xs font-semibold text-slate-500 mb-1.5">削除される対象：</p>
+              <ul className="space-y-0.5 text-xs text-slate-500">
+                {[
+                  'RefBase Entity（refbase:company:...）',
+                  'RefBase Reference 全件（refbase:ref:...）',
+                  'Aisle HTMLページ全件（page:question:...）',
+                  '問い別一覧ページ（page:index:...）',
+                  'インデックス全件（refbase:index:... / page-question-index:...）',
+                  'refbase:index:all から除去',
+                  '外部情報源・Evidence KV',
+                ].map((item, i) => (
+                  <li key={i} className="flex items-start gap-1.5">
+                    <span className="text-red-400 shrink-0">✕</span>{item}
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            {/* slug再入力確認 */}
+            <div className="mb-5">
+              <label className="block text-xs font-semibold text-slate-600 mb-1.5">
+                確認のため <code className="bg-slate-100 px-1 rounded font-mono">{entityDeleteConfirm.clientSlug}</code> を入力してください
+              </label>
+              <input
+                type="text"
+                value={entityDeleteInput}
+                onChange={e => setEntityDeleteInput(e.target.value)}
+                placeholder={entityDeleteConfirm.clientSlug}
+                className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-red-400"
+                autoFocus
+              />
+            </div>
+
+            <div className="flex gap-2">
+              <button
+                onClick={handleEntityDelete}
+                disabled={isDeletingEntity || entityDeleteInput !== entityDeleteConfirm.clientSlug}
+                className="flex-1 px-4 py-2.5 bg-red-600 text-white rounded-xl text-sm font-semibold hover:bg-red-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                {isDeletingEntity ? '削除中...' : '完全削除する'}
+              </button>
+              <button
+                onClick={() => { setEntityDeleteConfirm(null); setEntityDeleteInput(''); }}
+                disabled={isDeletingEntity}
                 className="flex-1 px-4 py-2.5 bg-slate-100 text-slate-700 rounded-xl text-sm font-medium hover:bg-slate-200 transition-colors"
               >
                 キャンセル
