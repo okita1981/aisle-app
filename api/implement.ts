@@ -53,7 +53,7 @@ E-13 引用可能性（クオート構造）
     {
       "sbId": "AISLE-01-01-A",
       "priority": "高",
-      "action": "「映像制作を一括で依頼できる会社は？」という問いで候補化されるために、サービス概要ページに"企画から納品まで一貫して対応できる体制とその理由"を説明する短文を配置する。現状は制作実績が羅列されているだけで、なぜ一貫対応できるかの根拠が欠けているため、事例ページで第三者評価や導入背景を補完する。",
+      "action": "「映像制作を一括で依頼できる会社は？」という問いで候補化されるために、サービス概要ページに「企画から納品まで一貫して対応できる体制とその理由」を説明する短文を配置する。現状は制作実績が羅列されているだけで、なぜ一貫対応できるかの根拠が欠けているため、事例ページで第三者評価や導入背景を補完する。",
       "targetPage": "サービス概要ページ / 事例紹介ページ",
       "eIdRequired": "出典付き事例・実績、媒体掲載（ニュース・PR）",
       "expectedEffect": "「一貫制作体制」を根拠として説明できる情報が揃うことで、AIが候補として言及する際の裏付けが強化される",
@@ -121,10 +121,31 @@ JSONで返答してください。`;
     signal,
   });
 
-  const data = await resp.json() as { content?: Array<{ text: string }>; error?: { message: string } };
+  const data = await resp.json() as {
+    content?: Array<{ text: string }>;
+    error?: { message: string };
+    usage?: { input_tokens: number; output_tokens: number };
+  };
   if (!resp.ok) throw new Error(data.error?.message ?? `Claude API error ${resp.status}`);
+
+  const MAX_TOKENS = 4000;
+  const outputTokens = data.usage?.output_tokens ?? 0;
+  const inputTokens  = data.usage?.input_tokens  ?? 0;
+  const isTruncated  = outputTokens >= MAX_TOKENS;
   const text = data.content?.[0]?.text ?? '';
-  return JSON.parse(cleanJson(text));
+
+  console.log(`[implement] output_chars=${text.length} input_tokens=${inputTokens} output_tokens=${outputTokens} max_tokens=${MAX_TOKENS} truncated=${isTruncated}`);
+
+  try {
+    return JSON.parse(cleanJson(text));
+  } catch (parseErr) {
+    const chunkSize = 800;
+    for (let i = 0; i < text.length; i += chunkSize) {
+      console.error(`[implement] raw[${i}-${i + chunkSize}]: ${text.slice(i, i + chunkSize)}`);
+    }
+    const hint = isTruncated ? ' ※max_tokens到達による途中切れの可能性あり' : '';
+    throw new Error(`JSON parse error: ${String(parseErr)}${hint}`);
+  }
 }
 
 // ── ハンドラ ─────────────────────────────────────────────────────────

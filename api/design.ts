@@ -357,6 +357,152 @@ ${allObserved.join('\n')}
 After構文を生成する際、上記K-IDが示す敗因を克服・補完する意味接点を優先的に盛り込んでください。`;
 }
 
+interface EvaluationAxesInput {
+  primaryAxes: string[];
+  keyTerms: string[];
+  expectedAnswerFormat: string;
+  pIdAlignment: string;
+  evidenceHints?: string[];
+}
+
+interface EvidenceItemInput {
+  type: string;
+  title: string;
+  description: string;
+  entityRole: string;
+  value?: string;
+  tags: string[];
+}
+
+// Evidence突合: evaluationAxes の keyTerms/primaryAxes/evidenceHints と tags/title/entityRole を照合して上位件を選択
+
+// type固定ベーススコア: 推薦文・公開ページで具体案件名・顧客名・第三者根拠を優先するための固定下駄
+const TYPE_BASE_SCORE: Record<string, number> = {
+  case:         4, // 実績案件：最優先（固有案件名・事例）
+  client:       3, // 顧客名：具体名があれば必ず前に出す
+  credential:   3, // 受賞・認定：第三者根拠として高価値
+  media:        3, // メディア掲載：第三者根拠として高価値
+  metric:       2, // 数値実績：有効だが単体主役にしない
+  comparison:   2,
+  method:       2,
+  feature:      1, // 特徴・機能：case/clientがあれば補足に回す
+  availability: 1,
+  review:       1,
+  other:        0,
+};
+
+// P-ID別Evidenceタイプウェイト
+// 「この問いでAIが何を根拠として使いたいか」に合わせた加点
+const P_ID_EVIDENCE_WEIGHT: Record<string, Record<string, number>> = {
+  'P-01': { case: 3, client: 3, metric: 2, method: 1 },            // 選定：実績・顧客名・数値
+  'P-02': { comparison: 3, feature: 2, metric: 2, method: 1 },     // 比較：比較軸・機能差・数値
+  'P-03': { case: 3, client: 3, media: 3, credential: 2 },         // ランキング：話題性・メディア・認定
+  'P-04': { case: 3, method: 3, client: 2, metric: 2 },            // 課題解決：事例・手法・実績
+  'P-05': { credential: 3, media: 3, metric: 2, client: 2 },       // 出典引用：受賞・メディア掲載・数値
+  'P-06': { media: 2, credential: 2, case: 2, client: 2 },         // 推薦深掘り：第三者評価・実績
+};
+
+const HINT_KEYWORD_TO_TYPE: [RegExp, string][] = [
+  [/実績|事例|案件|プロジェクト|制作/, 'case'],
+  [/クライアント|顧客|取引先|企業名|社名/, 'client'],
+  [/数値|本数|件数|率|点数|売上|利用者|導入数/, 'metric'],
+  [/受賞|認定|資格|アワード|表彰|特許/, 'credential'],
+  [/口コミ|レビュー|評価|評判|声/, 'review'],
+  [/メディア|掲載|記事|紹介|取材/, 'media'],
+  [/機能|特徴|強み|できること|成分|仕様/, 'feature'],
+  [/手法|方法|アプローチ|フロー|プロセス/, 'method'],
+  [/対応|地域|業界|時間|価格|料金/, 'availability'],
+  [/比較|違い|差別化|優位/, 'comparison'],
+];
+
+function buildHintTypeMap(hints: string[]): Record<string, number> {
+  const map: Record<string, number> = {};
+  for (const hint of hints) {
+    for (const [re, type] of HINT_KEYWORD_TO_TYPE) {
+      if (re.test(hint)) { map[type] = (map[type] ?? 0) + 2; break; }
+    }
+  }
+  return map;
+}
+
+function selectRelevantEvidence(items: EvidenceItemInput[], axes: EvaluationAxesInput, max = 8, context?: { promptText?: string; pId?: string }): EvidenceItemInput[] {
+  const keySet = new Set([
+    ...axes.keyTerms.map(t => t.toLowerCase()),
+    ...axes.primaryAxes.map(a => a.toLowerCase()),
+  ]);
+  const hintTypeMap  = buildHintTypeMap(axes.evidenceHints ?? []);
+  const basePId      = context?.pId?.split('-').slice(0, 2).join('-') ?? '';
+  const pIdWeightMap = P_ID_EVIDENCE_WEIGHT[basePId] ?? {};
+
+  const scored = items.map(item => {
+    const tagHits      = item.tags.filter(t => keySet.has(t.toLowerCase())).length;
+    const titleHit     = axes.keyTerms.some(t => item.title.toLowerCase().includes(t.toLowerCase())) ? 1 : 0;
+    const roleHit      = axes.keyTerms.some(t => item.entityRole.toLowerCase().includes(t.toLowerCase())) ? 1 : 0;
+    const typePriority = hintTypeMap[item.type] ?? 0;
+    const typeBase     = TYPE_BASE_SCORE[item.type] ?? 0;
+    const pIdWeight    = pIdWeightMap[item.type] ?? 0;
+    const totalScore   = tagHits + titleHit + roleHit + typePriority + typeBase + pIdWeight;
+    return { item, score: totalScore, tagHits, titleHit, roleHit, typePriority, typeBase, pIdWeight };
+  });
+
+  const sortedAll = scored.sort((a, b) => b.score - a.score);
+  const selected  = sortedAll.slice(0, max);
+  const rejected  = sortedAll.slice(max);
+
+  // Evidence Trace ログ
+  const prefix = `[evidence-trace] pId=${context?.pId ?? 'n/a'} promptText="${(context?.promptText ?? '').slice(0, 40)}"`;
+  console.log(`${prefix} hints=[${(axes.evidenceHints ?? []).join(',')}] keyTerms=[${axes.keyTerms.join(',')}] pIdWeights=${JSON.stringify(pIdWeightMap)} total=${items.length} selected=${selected.length}`);
+  for (const s of selected) {
+    console.log(`${prefix} SELECTED  type=${s.item.type} title="${s.item.title.slice(0, 30)}" tags=[${s.item.tags.join(',')}] tagHits=${s.tagHits} titleHit=${s.titleHit} roleHit=${s.roleHit} typePriority=${s.typePriority} typeBase=${s.typeBase} pIdWeight=${s.pIdWeight} total=${s.score}`);
+  }
+  for (const s of rejected) {
+    console.log(`${prefix} REJECTED  type=${s.item.type} title="${s.item.title.slice(0, 30)}" tags=[${s.item.tags.join(',')}] tagHits=${s.tagHits} titleHit=${s.titleHit} roleHit=${s.roleHit} typePriority=${s.typePriority} typeBase=${s.typeBase} pIdWeight=${s.pIdWeight} total=${s.score}`);
+  }
+
+  return selected.map(s => s.item);
+}
+
+const TYPE_LABEL: Record<string, string> = {
+  case: '実績・事例', client: '顧客・取引先', feature: '特徴・機能',
+  metric: '数値実績', credential: '認定・受賞', review: 'レビュー・評価',
+  media: 'メディア掲載', method: '独自手法', availability: '提供条件',
+  comparison: '比較・差別化', other: 'その他',
+};
+
+function buildEvidenceSection(items: EvidenceItemInput[], axes?: EvaluationAxesInput, context?: { promptText?: string; pId?: string }): string {
+  if (!items || items.length === 0) return '';
+  const selected = axes ? selectRelevantEvidence(items, axes, 8, context) : items.slice(0, 8);
+  if (selected.length === 0) return '';
+
+  const lines = selected.map(item => {
+    const label = TYPE_LABEL[item.type] ?? item.type;
+    const valueStr = item.value ? `（${item.value}）` : '';
+    return `[${label}] ${item.title}${valueStr}: ${item.description.slice(0, 60)}${item.entityRole ? ` ／ ${item.entityRole}` : ''}`;
+  });
+
+  return `
+【採用済みエビデンス】
+以下はこの商材について確認済みの根拠情報です。After構文生成の際、関連するエビデンスの固有名詞・数値・事実を自然な形で活用してください。架空の情報は生成しないこと。
+${lines.join('\n')}
+`;
+}
+
+function buildEvaluationAxesSection(evaluationAxes?: EvaluationAxesInput): string {
+  if (!evaluationAxes) return '';
+  const axesList = evaluationAxes.primaryAxes.map(a => `- ${a}`).join('\n');
+  const hints = evaluationAxes.evidenceHints && evaluationAxes.evidenceHints.length > 0
+    ? `\n探すべき根拠: ${evaluationAxes.evidenceHints.join('、')}`
+    : '';
+  return `
+【問いの評価軸】
+AIがこの問いに回答する際に使う評価軸:
+${axesList}
+問いの関連語彙: ${evaluationAxes.keyTerms.join('、')}
+期待される回答形式: ${evaluationAxes.expectedAnswerFormat}${hints}
+After構文には上記の評価軸・語彙を自然な形で盛り込んでください。
+`;
+}
+
 async function callDesignApi(
   companyName: string,
   productCategory: string,
@@ -368,10 +514,14 @@ async function callDesignApi(
   sbIdPromptId?: string,
   analysisMode?: string,
   secondaryPIds?: string[],
+  evaluationAxes?: EvaluationAxesInput,
+  adoptedEvidence?: EvidenceItemInput[],
 ) {
   const kIdInstructions = buildKIdInstructions(kIdScoreMap);
   const analysisModeInstruction = buildAnalysisModeInstruction(analysisMode);
   const secondaryPIdContext = buildSecondaryPIdContext(secondaryPIds);
+  const evaluationAxesSection = buildEvaluationAxesSection(evaluationAxes);
+  const evidenceSection = buildEvidenceSection(adoptedEvidence ?? [], evaluationAxes, { promptText, pId });
   // SB-ID命名: sbIdPromptId（位置番号ベース）を優先、未指定時は pId にフォールバック
   const sbPrefix = (sbIdPromptId ?? pId).replace('P-', '');
 
@@ -380,7 +530,7 @@ async function callDesignApi(
 商材カテゴリ: ${productCategory}
 説明文: ${productDescription}
 ${kIdInstructions}
-${analysisModeInstruction}
+${analysisModeInstruction}${evaluationAxesSection}${evidenceSection}
 【P-ID情報】
 P-ID: ${pId}
 プロンプトタイプ: ${pLabel}
@@ -393,7 +543,8 @@ JSONで返答してください。`;
   const apiKey = process.env.ANTHROPIC_API_KEY ?? '';
   if (!apiKey) throw new Error('ANTHROPIC_API_KEY が未設定です');
 
-  console.log(`[design] pId=${pId} input_chars=${userContent.length} system_chars=${DESIGN_SYSTEM_PROMPT.length}`);
+  const evidenceCount = adoptedEvidence?.length ?? 0;
+  console.log(`[design] pId=${pId} input_chars=${userContent.length} system_chars=${DESIGN_SYSTEM_PROMPT.length} evidence_count=${evidenceCount} has_eval_axes=${!!evaluationAxes}`);
 
   const resp = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
@@ -417,7 +568,7 @@ JSONで返答してください。`;
   } catch {
     throw new Error(`Anthropic APIの応答読み取りに失敗しました（HTTP ${resp.status}）`);
   }
-  let data: { content?: Array<{ text: string }>; error?: { message: string } };
+  let data: { content?: Array<{ text: string }>; error?: { message: string }; usage?: { input_tokens?: number; output_tokens?: number } };
   try {
     data = JSON.parse(anthropicRaw) as typeof data;
   } catch {
@@ -426,14 +577,23 @@ JSONで返答してください。`;
   }
   if (!resp.ok) throw new Error(data.error?.message ?? `Claude API error ${resp.status}`);
   const rawText = (data.content?.[0]?.text ?? '').trim();
+  const MAX_TOKENS = 6000;
+  const outputTokens = data.usage?.output_tokens ?? 0;
+  const isTruncated = outputTokens >= MAX_TOKENS;
+  console.log(`[design] output_chars=${rawText.length} input_tokens=${data.usage?.input_tokens ?? 'n/a'} output_tokens=${outputTokens} max_tokens=${MAX_TOKENS} truncated=${isTruncated}`);
   const cleanedText = cleanJson(rawText);
   try {
     return JSON.parse(cleanedText);
   } catch (parseErr) {
-    console.error('[design] JSON parse failed:', parseErr instanceof Error ? parseErr.message : String(parseErr));
-    console.error('[design] raw (0-600):', rawText.slice(0, 600));
-    console.error('[design] raw (last 600):', rawText.slice(-600));
-    throw new Error(`LLM出力のJSON解析に失敗しました: ${parseErr instanceof Error ? parseErr.message : String(parseErr)}`);
+    const errMsg = parseErr instanceof Error ? parseErr.message : String(parseErr);
+    console.error(`[design] JSON parse failed: ${errMsg}`);
+    console.error(`[design] truncated=${isTruncated} output_tokens=${outputTokens}/${MAX_TOKENS}`);
+    // 全生出力をチャンク分割してログ出力（Vercel は1行10KB制限）
+    const CHUNK = 800;
+    for (let i = 0; i < rawText.length; i += CHUNK) {
+      console.error(`[design] raw[${i}-${Math.min(i + CHUNK, rawText.length)}]: ${rawText.slice(i, i + CHUNK)}`);
+    }
+    throw new Error(`LLM出力のJSON解析に失敗しました: ${errMsg}${isTruncated ? ' ※max_tokens到達による途中切れの可能性あり' : ''}`);
   }
 }
 
@@ -461,12 +621,14 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       sbIdPromptId?: string;   // SB-ID命名用（位置番号ベース promptId）
       analysisMode?: string;   // 2層分析モード（success_observation 時はK-ID改善設計を抑制）
       secondaryPIds?: string[]; // 補助P-ID（補助的な問い意図）
+      evaluationAxes?: EvaluationAxesInput;   // 問い×商材カテゴリから抽出した評価軸
+      adoptedEvidence?: EvidenceItemInput[];  // 採用済みEvidence
     };
-    const { companyName, productCategory, productDescription, pId, pLabel, promptText, kIdScoreMap, sbIdPromptId, analysisMode, secondaryPIds } = body;
+    const { companyName, productCategory, productDescription, pId, pLabel, promptText, kIdScoreMap, sbIdPromptId, analysisMode, secondaryPIds, evaluationAxes, adoptedEvidence } = body;
 
     if (!promptText) throw new Error('プロンプト文が必要です');
 
-    const result = await callDesignApi(companyName, productCategory, productDescription, pId, pLabel, promptText, kIdScoreMap, sbIdPromptId, analysisMode, secondaryPIds);
+    const result = await callDesignApi(companyName, productCategory, productDescription, pId, pLabel, promptText, kIdScoreMap, sbIdPromptId, analysisMode, secondaryPIds, evaluationAxes, adoptedEvidence);
     res.setHeader('Content-Type', 'application/json');
     res.end(JSON.stringify({ ok: true, data: result }));
   } catch (err: unknown) {

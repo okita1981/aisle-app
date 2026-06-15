@@ -385,16 +385,22 @@ JSONで返答してください。`;
   if (!resp.ok) throw new Error(data.error?.message ?? `Claude API error ${resp.status}`);
   const rawText = (data.content?.[0]?.text ?? '').trim();
   const usage = (data as unknown as { usage?: { input_tokens?: number; output_tokens?: number } }).usage;
-  console.log(`[design-step2] output_chars=${rawText.length} input_tokens=${usage?.input_tokens ?? 'n/a'} output_tokens=${usage?.output_tokens ?? 'n/a'} (STEP4+validation only)`);
+  const MAX_TOKENS_S2 = 1500;
+  const outputTokensS2 = usage?.output_tokens ?? 0;
+  const isTruncatedS2 = outputTokensS2 >= MAX_TOKENS_S2;
+  console.log(`[design-step2] output_chars=${rawText.length} input_tokens=${usage?.input_tokens ?? 'n/a'} output_tokens=${outputTokensS2} max_tokens=${MAX_TOKENS_S2} truncated=${isTruncatedS2} (STEP4+validation only)`);
   const cleanedText = cleanJson(rawText);
   try {
     return JSON.parse(cleanedText);
   } catch (parseErr) {
-    // raw responseの先頭・末尾をログ出力（Vercel Function Logsで確認可能）
-    console.error('[design-step2] JSON parse failed:', parseErr instanceof Error ? parseErr.message : String(parseErr));
-    console.error('[design-step2] raw (0-600):', rawText.slice(0, 600));
-    console.error('[design-step2] raw (last 600):', rawText.slice(-600));
-    throw new Error(`LLM出力のJSON解析に失敗しました: ${parseErr instanceof Error ? parseErr.message : String(parseErr)}`);
+    const errMsg = parseErr instanceof Error ? parseErr.message : String(parseErr);
+    console.error(`[design-step2] JSON parse failed: ${errMsg}`);
+    console.error(`[design-step2] truncated=${isTruncatedS2} output_tokens=${outputTokensS2}/${MAX_TOKENS_S2}`);
+    const CHUNK = 800;
+    for (let i = 0; i < rawText.length; i += CHUNK) {
+      console.error(`[design-step2] raw[${i}-${Math.min(i + CHUNK, rawText.length)}]: ${rawText.slice(i, i + CHUNK)}`);
+    }
+    throw new Error(`LLM出力のJSON解析に失敗しました: ${errMsg}${isTruncatedS2 ? ' ※max_tokens到達による途中切れの可能性あり' : ''}`);
   }
 }
 

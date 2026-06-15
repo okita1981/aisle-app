@@ -319,15 +319,22 @@ JSONで返答してください。`;
   }
   if (!resp.ok) throw new Error(data.error?.message ?? `Claude API error ${resp.status}`);
   const rawText = (data.content?.[0]?.text ?? '').trim();
-  console.log(`[design-step3] output_chars=${rawText.length} input_tokens=${data.usage?.input_tokens ?? 'n/a'} output_tokens=${data.usage?.output_tokens ?? 'n/a'}`);
+  const MAX_TOKENS_S3 = 3500;
+  const outputTokensS3 = data.usage?.output_tokens ?? 0;
+  const isTruncatedS3 = outputTokensS3 >= MAX_TOKENS_S3;
+  console.log(`[design-step3] output_chars=${rawText.length} input_tokens=${data.usage?.input_tokens ?? 'n/a'} output_tokens=${outputTokensS3} max_tokens=${MAX_TOKENS_S3} truncated=${isTruncatedS3}`);
   const cleanedText = cleanJson(rawText);
   try {
     return JSON.parse(cleanedText);
   } catch (parseErr) {
-    console.error('[design-step3] JSON parse failed:', parseErr instanceof Error ? parseErr.message : String(parseErr));
-    console.error('[design-step3] raw (0-600):', rawText.slice(0, 600));
-    console.error('[design-step3] raw (last 600):', rawText.slice(-600));
-    throw new Error(`LLM出力のJSON解析に失敗しました: ${parseErr instanceof Error ? parseErr.message : String(parseErr)}`);
+    const errMsg = parseErr instanceof Error ? parseErr.message : String(parseErr);
+    console.error(`[design-step3] JSON parse failed: ${errMsg}`);
+    console.error(`[design-step3] truncated=${isTruncatedS3} output_tokens=${outputTokensS3}/${MAX_TOKENS_S3}`);
+    const CHUNK = 800;
+    for (let i = 0; i < rawText.length; i += CHUNK) {
+      console.error(`[design-step3] raw[${i}-${Math.min(i + CHUNK, rawText.length)}]: ${rawText.slice(i, i + CHUNK)}`);
+    }
+    throw new Error(`LLM出力のJSON解析に失敗しました: ${errMsg}${isTruncatedS3 ? ' ※max_tokens到達による途中切れの可能性あり' : ''}`);
   }
 }
 
