@@ -298,7 +298,6 @@ export function AdminPage() {
               type="button"
               onClick={() => {
                 if (suggestions.length === 1) {
-                  setClientSlugInput(suggestions[0]);
                   setSuggestions([]);
                   setShowSuggestions(false);
                   loadEntity(suggestions[0]);
