@@ -273,7 +273,18 @@ export function AdminPage() {
                 value={clientSlugInput}
                 onChange={e => handleInputChange(e.target.value)}
                 onKeyDown={e => {
-                  if (e.key === 'Enter') { e.preventDefault(); loadEntity(clientSlugInput); }
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    if (suggestions.length === 1) {
+                      setClientSlugInput(suggestions[0]);
+                      setSuggestions([]);
+                      setShowSuggestions(false);
+                      loadEntity(suggestions[0]);
+                    } else {
+                      setShowSuggestions(false);
+                      loadEntity(clientSlugInput.trim());
+                    }
+                  }
                   if (e.key === 'Escape') { setShowSuggestions(false); }
                 }}
                 placeholder="例: aisle（部分一致で候補を表示）"
