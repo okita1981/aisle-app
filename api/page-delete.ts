@@ -49,7 +49,15 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
 
     // ── 問い単位ページの削除（新構造） ───────────────────────────────
     if (questionSlug && clientSlug) {
+      // Aisle HTML 削除
       await kv.del(`page:question:${clientSlug}/${questionSlug}`);
+
+      // RefBase KV 連動削除（常に実行）
+      await kv.del(`refbase:ref:${clientSlug}/${questionSlug}`);
+      const existingRefIdx = await kv.get<string[]>(`refbase:index:${clientSlug}`) ?? [];
+      if (existingRefIdx.includes(questionSlug)) {
+        await kv.set(`refbase:index:${clientSlug}`, existingRefIdx.filter(s => s !== questionSlug));
+      }
 
       if (deleteFromIndex) {
         const existingQIdx = await kv.get<QuestionPageIndexEntry[]>(`page-question-index:${clientSlug}`) ?? [];

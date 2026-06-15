@@ -6,6 +6,9 @@
       "maxDuration": 60
     }
   },
+  "redirects": [
+    { "source": "/:clientSlug/profile", "destination": "https://www.refbase.ai/entity/:clientSlug", "permanent": false }
+  ],
   "rewrites": [
     { "source": "/dashboard",          "destination": "/index.html" },
     { "source": "/dashboard/:path*",   "destination": "/index.html" },
@@ -18,7 +21,6 @@
     { "source": "/llms.txt",           "destination": "/api/page-generate?format=llms" },
     { "source": "/aisle/:childSlug",   "destination": "/api/page-get?slug=aisle/:childSlug" },
     { "source": "/:clientSlug/questions/:questionSlug", "destination": "/api/page-get?clientSlug=:clientSlug&questionSlug=:questionSlug" },
-    { "source": "/:clientSlug/profile", "destination": "/api/page-get?clientSlug=:clientSlug&subpage=profile" },
     { "source": "/:clientSlug/:promptSlug", "destination": "/api/page-get?slug=:clientSlug/:promptSlug" },
     { "source": "/:slug",              "destination": "/api/page-get?slug=:slug" },
     { "source": "/(.*)",               "destination": "/index.html" }

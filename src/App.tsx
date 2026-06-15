@@ -2,6 +2,7 @@ import { useAppStore } from './store/useAppStore';
 import { Sidebar } from './components/Sidebar';
 import { StepBar } from './components/StepBar';
 import { PasswordGate } from './components/PasswordGate';
+import { AdminPage } from './components/AdminPage';
 import { Phase0LogCollect } from './phases/Phase0LogCollect';
 import { Phase1Evaluation } from './phases/Phase1Evaluation';
 import { Phase2Design } from './phases/Phase2Design';
@@ -11,6 +12,11 @@ import { Report } from './phases/Report';
 
 function App() {
   const { currentPhase } = useAppStore();
+
+  // /admin ルート
+  if (window.location.pathname === '/admin') {
+    return <PasswordGate><AdminPage /></PasswordGate>;
+  }
   const isReport = currentPhase === 6;
 
   const renderPhase = () => {
