@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 
 // ── 型定義 ──────────────────────────────────────────────────────
 interface AdminEntity {
@@ -75,6 +75,12 @@ export function AdminPage() {
   const [loading, setLoading]                 = useState(false);
   const [error, setError]                     = useState<string | null>(null);
 
+  // 部分一致検索
+  const [allSlugs, setAllSlugs]         = useState<string[]>([]);
+  const [suggestions, setSuggestions]   = useState<string[]>([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
   // 削除フロー
   const [deletingSlug, setDeletingSlug]   = useState<string | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<DeleteConfirm | null>(null);
@@ -83,6 +89,37 @@ export function AdminPage() {
   const [previewData, setPreviewData]       = useState<AdminReferenceDetail | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError]     = useState<string | null>(null);
+
+  // ── 全slug取得（マウント時1回） ───────────────────────────────
+  useEffect(() => {
+    fetch('/api/refbase-get?type=all')
+      .then(r => r.json())
+      .then((j: { ok: boolean; entities?: string[] }) => {
+        if (j.ok && j.entities) setAllSlugs(j.entities);
+      })
+      .catch(() => {});
+  }, []);
+
+  // ── 入力に応じた候補フィルタリング ────────────────────────────
+  const handleInputChange = (val: string) => {
+    const cleaned = val.toLowerCase().replace(/[^a-z0-9-]/g, '');
+    setClientSlugInput(cleaned);
+    if (cleaned.length === 0) {
+      setSuggestions([]);
+      setShowSuggestions(false);
+      return;
+    }
+    const hits = allSlugs.filter(s => s.includes(cleaned)).slice(0, 10);
+    setSuggestions(hits);
+    setShowSuggestions(hits.length > 0);
+  };
+
+  const selectSuggestion = (slug: string) => {
+    setClientSlugInput(slug);
+    setSuggestions([]);
+    setShowSuggestions(false);
+    loadEntity(slug);
+  };
 
   // ── Entity 読み込み ────────────────────────────────────────────
   const loadEntity = useCallback(async (slug: string) => {
@@ -187,17 +224,40 @@ export function AdminPage() {
           <label className="block text-sm font-semibold text-slate-700 mb-2">
             clientSlug を入力
           </label>
-          <div className="flex gap-2">
-            <input
-              type="text"
-              value={clientSlugInput}
-              onChange={e => setClientSlugInput(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''))}
-              onKeyDown={e => e.key === 'Enter' && loadEntity(clientSlugInput)}
-              placeholder="例: aisle"
-              className="flex-1 px-4 py-2.5 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 font-mono"
-            />
+          <div className="flex gap-2 relative">
+            <div className="flex-1 relative">
+              <input
+                ref={inputRef}
+                type="text"
+                value={clientSlugInput}
+                onChange={e => handleInputChange(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === 'Enter') { setShowSuggestions(false); loadEntity(clientSlugInput); }
+                  if (e.key === 'Escape') setShowSuggestions(false);
+                }}
+                onBlur={() => setTimeout(() => setShowSuggestions(false), 150)}
+                onFocus={() => suggestions.length > 0 && setShowSuggestions(true)}
+                placeholder="例: aisle（部分一致で候補を表示）"
+                className="w-full px-4 py-2.5 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 font-mono"
+              />
+              {showSuggestions && (
+                <ul className="absolute z-10 top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-lg overflow-hidden">
+                  {suggestions.map(slug => (
+                    <li key={slug}>
+                      <button
+                        type="button"
+                        onMouseDown={() => selectSuggestion(slug)}
+                        className="w-full text-left px-4 py-2.5 text-sm font-mono text-slate-700 hover:bg-indigo-50 hover:text-indigo-700 transition-colors"
+                      >
+                        {slug}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
             <button
-              onClick={() => loadEntity(clientSlugInput)}
+              onClick={() => { setShowSuggestions(false); loadEntity(clientSlugInput); }}
               disabled={loading || !clientSlugInput}
               className="px-5 py-2.5 bg-indigo-600 text-white rounded-lg text-sm font-semibold hover:bg-indigo-700 disabled:opacity-50 transition-colors"
             >
