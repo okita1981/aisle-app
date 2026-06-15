@@ -114,7 +114,7 @@ export function AdminPage() {
   }, []);
 
   // ── 入力に応じた候補フィルタリング ────────────────────────────
-  const handleInputChange = (val: string) => {
+  const handleInputChange = useCallback((val: string) => {
     const cleaned = val.toLowerCase().replace(/[^a-z0-9-]/g, '');
     setClientSlugInput(cleaned);
     if (cleaned.length === 0) {
@@ -125,7 +125,7 @@ export function AdminPage() {
     const hits = allSlugs.filter(s => s.includes(cleaned)).slice(0, 10);
     setSuggestions(hits);
     setShowSuggestions(hits.length > 0);
-  };
+  }, [allSlugs]);
 
   const selectSuggestion = (slug: string) => {
     setClientSlugInput(slug);
