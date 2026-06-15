@@ -113,24 +113,16 @@ export function AdminPage() {
       .catch(() => {});
   }, []);
 
-  // showSuggestions 変化ログ
-  useEffect(() => {
-    console.log('[admin] showSuggestions changed:', showSuggestions);
-  }, [showSuggestions]);
-
   // ── 入力に応じた候補フィルタリング ────────────────────────────
   const handleInputChange = useCallback((val: string) => {
     const cleaned = val.toLowerCase().replace(/[^a-z0-9-]/g, '');
-    console.log('[admin] handleInputChange', { val, cleaned, allSlugsLen: allSlugs.length, allSlugs });
     setClientSlugInput(cleaned);
     if (cleaned.length === 0) {
       setSuggestions([]);
-      console.log('[admin] hide suggestions: empty input');
       setShowSuggestions(false);
       return;
     }
     const hits = allSlugs.filter(s => s.includes(cleaned)).slice(0, 10);
-    console.log('[admin] hits:', hits, 'setShowSuggestions ->', hits.length > 0);
     setSuggestions(hits);
     setShowSuggestions(hits.length > 0);
   }, [allSlugs]);
@@ -138,7 +130,6 @@ export function AdminPage() {
   const selectSuggestion = (slug: string) => {
     setClientSlugInput(slug);
     setSuggestions([]);
-    console.log('[admin] hide suggestions: selectSuggestion');
     setShowSuggestions(false);
     loadEntity(slug);
   };
@@ -282,8 +273,8 @@ export function AdminPage() {
                 value={clientSlugInput}
                 onChange={e => handleInputChange(e.target.value)}
                 onKeyDown={e => {
-                  if (e.key === 'Enter') { console.log('[admin] hide suggestions: Enter'); setShowSuggestions(false); loadEntity(clientSlugInput); }
-                  if (e.key === 'Escape') { console.log('[admin] hide suggestions: Escape'); setShowSuggestions(false); }
+                  if (e.key === 'Enter') { setShowSuggestions(false); loadEntity(clientSlugInput); }
+                  if (e.key === 'Escape') { setShowSuggestions(false); }
                 }}
                 placeholder="例: aisle（部分一致で候補を表示）"
                 className="w-full px-4 py-2.5 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 font-mono"
@@ -305,18 +296,13 @@ export function AdminPage() {
               )}
             </div>
             <button
-              onClick={() => { console.log('[admin] hide suggestions: load button'); setShowSuggestions(false); loadEntity(clientSlugInput); }}
+              type="button"
+              onClick={() => { setShowSuggestions(false); loadEntity(clientSlugInput); }}
               disabled={loading || !clientSlugInput}
               className="px-5 py-2.5 bg-indigo-600 text-white rounded-lg text-sm font-semibold hover:bg-indigo-700 disabled:opacity-50 transition-colors"
             >
               {loading ? '読み込み中...' : '読み込む'}
             </button>
-          </div>
-          {/* デバッグ表示（動作確認後に削除） */}
-          <div className="mt-2 text-[11px] font-mono text-slate-400 space-y-0.5">
-            <div>allSlugs: [{allSlugs.join(', ')}] ({allSlugs.length}件)</div>
-            <div>suggestions: [{suggestions.join(', ')}]</div>
-            <div>showSuggestions: {String(showSuggestions)}</div>
           </div>
           {error && (
             <p className="mt-2 text-sm text-red-600 flex items-center gap-1.5">
