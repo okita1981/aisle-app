@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 
 // ── 型定義 ──────────────────────────────────────────────────────
 interface AdminEntity {
@@ -88,7 +88,6 @@ export function AdminPage() {
   const [allSlugs, setAllSlugs]         = useState<string[]>([]);
   const [suggestions, setSuggestions]   = useState<string[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
-  const inputRef = useRef<HTMLInputElement>(null);
 
   // Reference 削除フロー
   const [deletingSlug, setDeletingSlug]   = useState<string | null>(null);
@@ -270,7 +269,6 @@ export function AdminPage() {
           <div className="flex gap-2 relative">
             <div className="flex-1 relative">
               <input
-                ref={inputRef}
                 type="text"
                 value={clientSlugInput}
                 onChange={e => handleInputChange(e.target.value)}
@@ -278,8 +276,6 @@ export function AdminPage() {
                   if (e.key === 'Enter') { setShowSuggestions(false); loadEntity(clientSlugInput); }
                   if (e.key === 'Escape') setShowSuggestions(false);
                 }}
-                onBlur={() => setTimeout(() => setShowSuggestions(false), 150)}
-                onFocus={() => suggestions.length > 0 && setShowSuggestions(true)}
                 placeholder="例: aisle（部分一致で候補を表示）"
                 className="w-full px-4 py-2.5 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 font-mono"
               />
