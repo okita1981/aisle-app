@@ -108,8 +108,8 @@ export function AdminPage() {
   useEffect(() => {
     fetch('/api/refbase-get?type=all')
       .then(r => r.json())
-      .then((j: { ok: boolean; entities?: string[] }) => {
-        if (j.ok && j.entities) setAllSlugs(j.entities);
+      .then((j: { ok: boolean; entityIds?: string[] }) => {
+        if (j.ok && j.entityIds) setAllSlugs(j.entityIds);
       })
       .catch(() => {});
   }, []);
