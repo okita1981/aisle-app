@@ -113,9 +113,15 @@ export function AdminPage() {
       .catch(() => {});
   }, []);
 
+  // showSuggestions 変化ログ
+  useEffect(() => {
+    console.log('[admin] showSuggestions changed:', showSuggestions);
+  }, [showSuggestions]);
+
   // ── 入力に応じた候補フィルタリング ────────────────────────────
   const handleInputChange = useCallback((val: string) => {
     const cleaned = val.toLowerCase().replace(/[^a-z0-9-]/g, '');
+    console.log('[admin] handleInputChange', { val, cleaned, allSlugsLen: allSlugs.length, allSlugs });
     setClientSlugInput(cleaned);
     if (cleaned.length === 0) {
       setSuggestions([]);
@@ -123,6 +129,7 @@ export function AdminPage() {
       return;
     }
     const hits = allSlugs.filter(s => s.includes(cleaned)).slice(0, 10);
+    console.log('[admin] hits:', hits, 'setShowSuggestions ->', hits.length > 0);
     setSuggestions(hits);
     setShowSuggestions(hits.length > 0);
   }, [allSlugs]);
