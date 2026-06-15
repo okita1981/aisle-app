@@ -7,6 +7,10 @@ import { P_IDS } from '../store/masterData';
 import { buildModeMap } from '../store/analysisEngine';
 import type {
   Phase2PerPID,
+  EvaluationAxes,
+  EvidenceCandidateItem,
+  EvidenceItem,
+  EvidenceType,
   MIdMappingRow, PortfolioRow, AfterBunRow,
   ConnectionOrderRow, EIdComplementRow, AppearanceEvalRow,
   ValidationResult,
@@ -44,7 +48,7 @@ interface ApiDesignStep3Response {
 interface GenerationState {
   result: Phase2PerPID | null;
   isGenerating: boolean;
-  generatingStep: 1 | 2 | 3 | null;
+  generatingStep: 0 | 1 | 2 | 3 | null; // 0 = evaluate-axes
   error: string | null;
 }
 
@@ -472,6 +476,311 @@ function SummaryBlock({ summary }: { summary: Phase2PerPID['appearanceSummary'] 
 }
 
 // ============================================================
+// Evidence type 表示定義
+// ============================================================
+const EVIDENCE_TYPE_DISPLAY: Record<EvidenceType, { label: string; color: string }> = {
+  case:         { label: '実績・事例',       color: 'blue'   },
+  client:       { label: '顧客・取引先',     color: 'violet' },
+  feature:      { label: '特徴・機能',       color: 'teal'   },
+  metric:       { label: '数値実績',         color: 'green'  },
+  credential:   { label: '認定・受賞',       color: 'amber'  },
+  review:       { label: 'レビュー・評価',   color: 'pink'   },
+  media:        { label: 'メディア掲載',     color: 'orange' },
+  method:       { label: '独自手法',         color: 'indigo' },
+  availability: { label: '提供条件',         color: 'slate'  },
+  comparison:   { label: '比較・差別化',     color: 'red'    },
+  other:        { label: 'その他',           color: 'gray'   },
+};
+
+const EVIDENCE_COLOR_CLASSES: Record<string, { badge: string; tab: string }> = {
+  blue:   { badge: 'bg-blue-100 text-blue-800',     tab: 'bg-blue-600 text-white' },
+  violet: { badge: 'bg-violet-100 text-violet-800', tab: 'bg-violet-600 text-white' },
+  teal:   { badge: 'bg-teal-100 text-teal-800',     tab: 'bg-teal-600 text-white' },
+  green:  { badge: 'bg-green-100 text-green-800',   tab: 'bg-green-600 text-white' },
+  amber:  { badge: 'bg-amber-100 text-amber-800',   tab: 'bg-amber-600 text-white' },
+  pink:   { badge: 'bg-pink-100 text-pink-800',     tab: 'bg-pink-600 text-white' },
+  orange: { badge: 'bg-orange-100 text-orange-800', tab: 'bg-orange-600 text-white' },
+  indigo: { badge: 'bg-indigo-100 text-indigo-800', tab: 'bg-indigo-600 text-white' },
+  slate:  { badge: 'bg-slate-100 text-slate-700',   tab: 'bg-slate-600 text-white' },
+  red:    { badge: 'bg-red-100 text-red-800',       tab: 'bg-red-600 text-white' },
+  gray:   { badge: 'bg-gray-100 text-gray-700',     tab: 'bg-gray-600 text-white' },
+};
+
+// ============================================================
+// Evidence収集パネル
+// ============================================================
+interface EvidenceCollectorProps {
+  companyName: string;
+  onAdoptedChange: (items: EvidenceItem[]) => void;
+}
+
+function EvidenceCollector({ companyName, onAdoptedChange }: EvidenceCollectorProps) {
+  const [urlInput, setUrlInput] = useState('');
+  const [textInput, setTextInput] = useState('');
+  const [sourceLabel, setSourceLabel] = useState('公式サイト');
+  const [inputMode, setInputMode] = useState<'url' | 'text'>('url');
+  const [isExtracting, setIsExtracting] = useState(false);
+  const [extractError, setExtractError] = useState('');
+  const [candidates, setCandidates] = useState<EvidenceCandidateItem[]>([]);
+  const [activeTypeTab, setActiveTypeTab] = useState<EvidenceType | 'all'>('all');
+  const [isConfirmed, setIsConfirmed] = useState(false);
+
+  const adoptedCount = candidates.filter(c => c.status === 'adopted').length;
+  const pendingCount = candidates.filter(c => c.status === 'pending').length;
+
+  const handleExtract = async () => {
+    const target = inputMode === 'url' ? urlInput.trim() : textInput.trim();
+    if (!target) return;
+    setIsExtracting(true);
+    setExtractError('');
+    setIsConfirmed(false);
+    try {
+      const body = inputMode === 'url'
+        ? { url: target, sourceLabel, companyName }
+        : { rawText: target, sourceLabel, companyName };
+      const resp = await fetch('/api/evidence-extract', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const json = await resp.json() as { ok: boolean; items?: EvidenceCandidateItem[]; error?: string };
+      if (!json.ok || !json.items) throw new Error(json.error ?? '抽出に失敗しました');
+      // 既存候補とマージ（同タイトルの重複は追加しない）
+      const existingTitles = new Set(candidates.map(c => c.title));
+      const newItems = json.items.filter(i => !existingTitles.has(i.title));
+      setCandidates(prev => [...prev, ...newItems]);
+      if (inputMode === 'url') setUrlInput('');
+      else setTextInput('');
+    } catch (e) {
+      setExtractError(e instanceof Error ? e.message : '抽出に失敗しました');
+    } finally {
+      setIsExtracting(false);
+    }
+  };
+
+  const updateStatus = (id: string, status: EvidenceCandidateItem['status']) => {
+    const updated = candidates.map(c => c.id === id ? { ...c, status } : c);
+    setCandidates(updated);
+    if (isConfirmed) syncAdopted(updated);
+  };
+
+  const syncAdopted = (items: EvidenceCandidateItem[]) => {
+    const adopted: EvidenceItem[] = items
+      .filter(c => c.status === 'adopted')
+      .map(({ status: _s, sourceLabel: _l, ...rest }) => rest);
+    onAdoptedChange(adopted);
+  };
+
+  const handleConfirm = () => {
+    setIsConfirmed(true);
+    syncAdopted(candidates);
+  };
+
+  const handleAdoptAll = () => {
+    const updated = candidates.map(c => c.status === 'pending' ? { ...c, status: 'adopted' as const } : c);
+    setCandidates(updated);
+    if (isConfirmed) syncAdopted(updated);
+  };
+
+  // type別グルーピング
+  const typeGroups = candidates.reduce((acc, c) => {
+    acc[c.type] = [...(acc[c.type] ?? []), c];
+    return acc;
+  }, {} as Record<string, EvidenceCandidateItem[]>);
+
+  const availableTypes = Object.keys(typeGroups) as EvidenceType[];
+  const displayedCandidates = activeTypeTab === 'all'
+    ? candidates
+    : (typeGroups[activeTypeTab] ?? []);
+
+  if (candidates.length === 0 && !isExtracting) {
+    return (
+      <div className="border border-dashed border-slate-300 rounded-lg p-4 space-y-3">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-sm font-semibold text-slate-700">Evidence 収集</p>
+            <p className="text-xs text-slate-500 mt-0.5">URLまたはテキストからAIが根拠を自動抽出します</p>
+          </div>
+        </div>
+        <div className="flex gap-2">
+          <button
+            onClick={() => setInputMode('url')}
+            className={`px-3 py-1 rounded text-xs font-medium ${inputMode === 'url' ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+          >URL</button>
+          <button
+            onClick={() => setInputMode('text')}
+            className={`px-3 py-1 rounded text-xs font-medium ${inputMode === 'text' ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+          >テキスト貼付</button>
+        </div>
+        <div className="flex gap-2 items-start">
+          <div className="flex-1 space-y-1.5">
+            <input
+              type="text"
+              placeholder="抽出元ラベル（例: 公式サイト・事例ページ）"
+              value={sourceLabel}
+              onChange={e => setSourceLabel(e.target.value)}
+              className="w-full text-xs border border-slate-300 rounded px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-slate-400"
+            />
+            {inputMode === 'url' ? (
+              <input
+                type="url"
+                placeholder="https://..."
+                value={urlInput}
+                onChange={e => setUrlInput(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && handleExtract()}
+                className="w-full text-xs border border-slate-300 rounded px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-slate-400"
+              />
+            ) : (
+              <textarea
+                placeholder="事例・実績・特徴などのテキストを貼り付けてください"
+                value={textInput}
+                onChange={e => setTextInput(e.target.value)}
+                rows={4}
+                className="w-full text-xs border border-slate-300 rounded px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-slate-400 resize-none"
+              />
+            )}
+          </div>
+          <button
+            onClick={handleExtract}
+            disabled={isExtracting || !(inputMode === 'url' ? urlInput.trim() : textInput.trim())}
+            className="px-3 py-1.5 bg-slate-700 text-white text-xs rounded font-medium disabled:opacity-40 hover:bg-slate-800 whitespace-nowrap mt-6"
+          >{isExtracting ? '抽出中...' : '抽出'}</button>
+        </div>
+        {extractError && <p className="text-xs text-red-600">{extractError}</p>}
+      </div>
+    );
+  }
+
+  return (
+    <div className="border border-slate-200 rounded-lg overflow-hidden">
+      {/* ヘッダー */}
+      <div className="bg-slate-50 border-b border-slate-200 px-4 py-2.5 flex items-center justify-between flex-wrap gap-2">
+        <div className="flex items-center gap-3">
+          <p className="text-sm font-semibold text-slate-700">Evidence 候補</p>
+          <span className="text-xs text-slate-500">
+            採用 <span className="font-bold text-green-700">{adoptedCount}</span>件
+            {pendingCount > 0 && <> / 未判定 {pendingCount}件</>}
+          </span>
+        </div>
+        <div className="flex gap-2 flex-wrap">
+          {pendingCount > 0 && (
+            <button onClick={handleAdoptAll} className="text-xs px-2.5 py-1 bg-green-50 border border-green-300 text-green-700 rounded hover:bg-green-100">
+              全て採用
+            </button>
+          )}
+          {!isConfirmed ? (
+            <button
+              onClick={handleConfirm}
+              disabled={adoptedCount === 0}
+              className="text-xs px-3 py-1 bg-indigo-600 text-white rounded font-medium disabled:opacity-40 hover:bg-indigo-700"
+            >設計に使用する</button>
+          ) : (
+            <span className="text-xs px-2.5 py-1 bg-indigo-50 border border-indigo-300 text-indigo-700 rounded font-medium">
+              ✓ Evidence適用中 {adoptedCount}件
+            </span>
+          )}
+          {/* URL/テキスト追加入力 */}
+          <button
+            onClick={() => { setCandidates([]); setIsConfirmed(false); onAdoptedChange([]); }}
+            className="text-xs px-2 py-1 text-slate-500 hover:text-red-600"
+          >クリア</button>
+        </div>
+      </div>
+
+      {/* 追加URL入力バー */}
+      <div className="px-4 py-2 border-b border-slate-100 bg-white flex gap-2 items-center">
+        <div className="flex gap-1.5">
+          <button onClick={() => setInputMode('url')} className={`px-2 py-0.5 rounded text-xs ${inputMode === 'url' ? 'bg-slate-200 font-medium' : 'text-slate-500 hover:bg-slate-100'}`}>URL</button>
+          <button onClick={() => setInputMode('text')} className={`px-2 py-0.5 rounded text-xs ${inputMode === 'text' ? 'bg-slate-200 font-medium' : 'text-slate-500 hover:bg-slate-100'}`}>テキスト</button>
+        </div>
+        {inputMode === 'url' ? (
+          <input type="url" placeholder="追加URL..." value={urlInput} onChange={e => setUrlInput(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && handleExtract()}
+            className="flex-1 text-xs border border-slate-200 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-slate-300" />
+        ) : (
+          <input type="text" placeholder="テキストを追加..." value={textInput} onChange={e => setTextInput(e.target.value)}
+            className="flex-1 text-xs border border-slate-200 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-slate-300" />
+        )}
+        <input type="text" placeholder="ラベル" value={sourceLabel} onChange={e => setSourceLabel(e.target.value)}
+          className="w-24 text-xs border border-slate-200 rounded px-2 py-1 focus:outline-none" />
+        <button onClick={handleExtract} disabled={isExtracting || !(inputMode === 'url' ? urlInput.trim() : textInput.trim())}
+          className="px-2.5 py-1 bg-slate-600 text-white text-xs rounded disabled:opacity-40 hover:bg-slate-700 whitespace-nowrap">
+          {isExtracting ? '...' : '追加'}
+        </button>
+      </div>
+
+      {/* type タブ */}
+      <div className="px-4 py-2 border-b border-slate-100 flex flex-wrap gap-1">
+        <button
+          onClick={() => setActiveTypeTab('all')}
+          className={`px-2.5 py-0.5 rounded text-xs font-medium ${activeTypeTab === 'all' ? 'bg-slate-700 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+        >すべて {candidates.length}</button>
+        {availableTypes.map(type => {
+          const disp = EVIDENCE_TYPE_DISPLAY[type];
+          const colorClass = EVIDENCE_COLOR_CLASSES[disp.color];
+          const count = typeGroups[type]?.length ?? 0;
+          return (
+            <button key={type}
+              onClick={() => setActiveTypeTab(type)}
+              className={`px-2.5 py-0.5 rounded text-xs font-medium ${activeTypeTab === type ? colorClass.tab : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+            >{disp.label} {count}</button>
+          );
+        })}
+      </div>
+
+      {/* 候補カード一覧 */}
+      {extractError && <p className="px-4 py-2 text-xs text-red-600">{extractError}</p>}
+      <div className="divide-y divide-slate-100 max-h-80 overflow-y-auto">
+        {displayedCandidates.length === 0 && (
+          <p className="px-4 py-4 text-xs text-slate-400 text-center">候補がありません</p>
+        )}
+        {displayedCandidates.map(item => {
+          const disp = EVIDENCE_TYPE_DISPLAY[item.type as EvidenceType] ?? EVIDENCE_TYPE_DISPLAY.other;
+          const colorClass = EVIDENCE_COLOR_CLASSES[disp.color];
+          return (
+            <div key={item.id} className={`px-4 py-2.5 flex gap-3 items-start ${item.status === 'rejected' ? 'opacity-40' : ''}`}>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-1.5 flex-wrap mb-0.5">
+                  <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${colorClass.badge}`}>{disp.label}</span>
+                  {item.confidence === 'high' && <span className="text-xs text-green-600 font-medium">確度高</span>}
+                  {item.confidence === 'low' && <span className="text-xs text-slate-400">確度低</span>}
+                  <span className="text-xs text-slate-400">{item.sourceLabel}</span>
+                </div>
+                <p className="text-xs font-semibold text-slate-800 truncate">{item.title}</p>
+                <p className="text-xs text-slate-600 line-clamp-1">{item.entityRole} — {item.description}</p>
+                {item.tags.length > 0 && (
+                  <div className="flex flex-wrap gap-1 mt-1">
+                    {item.tags.slice(0, 5).map((tag, i) => (
+                      <span key={i} className="text-xs bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded">{tag}</span>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <div className="flex gap-1.5 shrink-0">
+                {item.status !== 'adopted' ? (
+                  <button onClick={() => updateStatus(item.id, 'adopted')}
+                    className="text-xs px-2 py-1 bg-green-50 border border-green-300 text-green-700 rounded hover:bg-green-100 font-medium">採用</button>
+                ) : (
+                  <button onClick={() => updateStatus(item.id, 'pending')}
+                    className="text-xs px-2 py-1 bg-green-600 text-white rounded font-medium">✓ 採用済</button>
+                )}
+                {item.status !== 'rejected' ? (
+                  <button onClick={() => updateStatus(item.id, 'rejected')}
+                    className="text-xs px-2 py-1 text-slate-400 hover:text-red-600">除外</button>
+                ) : (
+                  <button onClick={() => updateStatus(item.id, 'pending')}
+                    className="text-xs px-2 py-1 text-slate-400 hover:text-slate-700">戻す</button>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
 // P-ID 結果表示（1件）
 // ============================================================
 function PidResult({ result }: { result: Phase2PerPID }) {
@@ -490,6 +799,54 @@ function PidResult({ result }: { result: Phase2PerPID }) {
 
   return (
     <div className="space-y-4">
+      {/* 評価軸パネル */}
+      {result.evaluationAxes && (
+        <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-4 space-y-3">
+          <div>
+            <p className="text-xs font-bold text-indigo-700">この問いの評価軸</p>
+            <p className="text-xs text-indigo-500 mt-0.5">AIがこの問いに回答する際に重視しやすい判断軸です。</p>
+          </div>
+          <div className="grid grid-cols-1 gap-3">
+            <div>
+              <p className="text-xs font-semibold text-slate-500 mb-1">評価軸</p>
+              <div className="flex flex-wrap gap-1.5">
+                {result.evaluationAxes.primaryAxes.map((axis, i) => (
+                  <span key={i} className="px-2 py-0.5 bg-indigo-100 text-indigo-800 rounded text-xs font-medium">{axis}</span>
+                ))}
+              </div>
+            </div>
+            <div>
+              <p className="text-xs font-semibold text-slate-500 mb-1">関連語彙</p>
+              <div className="flex flex-wrap gap-1.5">
+                {result.evaluationAxes.keyTerms.map((term, i) => (
+                  <span key={i} className="px-2 py-0.5 bg-slate-100 text-slate-700 rounded text-xs">{term}</span>
+                ))}
+              </div>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <p className="text-xs font-semibold text-slate-500 mb-0.5">期待される回答形式</p>
+                <p className="text-xs text-slate-700">{result.evaluationAxes.expectedAnswerFormat}</p>
+              </div>
+              <div>
+                <p className="text-xs font-semibold text-slate-500 mb-0.5">P-IDとの整合</p>
+                <p className="text-xs text-slate-700">{result.evaluationAxes.pIdAlignment}</p>
+              </div>
+            </div>
+            {result.evaluationAxes.evidenceHints && result.evaluationAxes.evidenceHints.length > 0 && (
+              <div>
+                <p className="text-xs font-semibold text-slate-500 mb-1">探すべき根拠（Evidence ヒント）</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {result.evaluationAxes.evidenceHints.map((hint, i) => (
+                    <span key={i} className="px-2 py-0.5 bg-amber-50 border border-amber-200 text-amber-800 rounded text-xs">{hint}</span>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* ステップタブ */}
       <div className="flex flex-wrap gap-1">
         {steps.map((s) => (
@@ -548,6 +905,8 @@ function PidResult({ result }: { result: Phase2PerPID }) {
 // ============================================================
 export function Phase2Design() {
   const { logEntries, phase1Result, phase2Result, phase0Data, setPhase2Result, setPhase, appearedChoiceMap, setAppearedChoiceMap } = useAppStore();
+  // 採用済みEvidence（EvidenceCollectorから受け取り、design呼び出し時に注入）
+  const [adoptedEvidence, setAdoptedEvidence] = useState<EvidenceItem[]>([]);
   // phase0Data は promptTypeId の取得に使用
 
   // K-IDスコアマップ: KIdScoreRow[] → Record<string, string>（K-ID → ◎/○/△/×）
@@ -724,6 +1083,32 @@ export function Phase2Design() {
       secondaryPIds: secondaryPIds && secondaryPIds.length > 0 ? secondaryPIds : undefined,
     };
 
+    // ── Step 0: 評価軸抽出 ────────────────────────────────────
+    setGenerationMap(prev => ({
+      ...prev,
+      [promptId]: { result: prev[promptId]?.result ?? null, isGenerating: true, generatingStep: 0, error: null },
+    }));
+
+    let evaluationAxes: EvaluationAxes | undefined;
+    try {
+      const respAxes = await fetch('/api/evaluate-axes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          promptText,
+          pId: typeSubId,
+          pLabel,
+          companyName,
+          productCategory,
+          productDescription,
+        }),
+      });
+      const jsonAxes = await safeReadApiJson(respAxes) as { ok: boolean; data?: EvaluationAxes; error?: string };
+      if (jsonAxes.ok && jsonAxes.data) evaluationAxes = jsonAxes.data;
+    } catch {
+      // 評価軸取得失敗は無視して既存フローを継続
+    }
+
     // ── STEP1〜3 ──────────────────────────────────────────────
     setGenerationMap(prev => ({
       ...prev,
@@ -734,7 +1119,11 @@ export function Phase2Design() {
       const resp1 = await fetch('/api/design', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(commonParams),
+        body: JSON.stringify({
+          ...commonParams,
+          evaluationAxes,
+          adoptedEvidence: adoptedEvidence.length > 0 ? adoptedEvidence : undefined,
+        }),
       });
       const json1 = await safeReadApiJson(resp1) as { ok: boolean; data?: ApiDesignStep1Response; error?: string };
       if (!json1.ok || !json1.data) throw new Error(json1.error ?? 'API エラー（STEP1〜3）');
@@ -798,6 +1187,7 @@ export function Phase2Design() {
         promptTypeId,
         promptTypeLabel: pIdObj?.label ?? '',
         promptText,
+        evaluationAxes,
         mIdMapping: d1.step1 ?? [],
         portfolioIntro: d1.portfolioIntro ?? { intentSummary: '', mIdOutputs: '' },
         portfolio: d1.step2 ?? [],
@@ -1020,10 +1410,31 @@ export function Phase2Design() {
         </CardBody>
       </Card>
 
-      {/* ② 引き継いだプロンプト（読み取り専用） */}
+      {/* Evidence 収集パネル */}
       <Card>
         <CardHeader
-          title="② 引き継いだプロンプト（読み取り専用）"
+          title="② Evidence 収集（任意）"
+          subtitle="URLまたはテキストからAIが根拠を抽出します。採用済みEvidenceは出現設計に自動注入されます"
+        />
+        <CardBody>
+          <EvidenceCollector
+            companyName={companyName}
+            onAdoptedChange={setAdoptedEvidence}
+          />
+          {adoptedEvidence.length > 0 && (
+            <div className="mt-2 flex items-center gap-2">
+              <span className="text-xs px-2.5 py-1 bg-indigo-50 border border-indigo-200 text-indigo-700 rounded-full font-medium">
+                Evidence {adoptedEvidence.length}件が出現設計に適用されます
+              </span>
+            </div>
+          )}
+        </CardBody>
+      </Card>
+
+      {/* ③ 引き継いだプロンプト（読み取り専用） */}
+      <Card>
+        <CardHeader
+          title="③ 引き継いだプロンプト（読み取り専用）"
           subtitle="01 ログ取得・02 因果分析から自動引き継ぎされたP-IDとプロンプトです"
         />
         <CardBody>
@@ -1112,7 +1523,7 @@ export function Phase2Design() {
                                 variant="primary"
                               >
                                 {state.isGenerating
-                                  ? state.generatingStep === 1 ? 'STEP1〜3 生成中...' : state.generatingStep === 2 ? 'STEP4 生成中...' : 'STEP5〜6 生成中...'
+                                  ? state.generatingStep === 0 ? '評価軸を分析中...' : state.generatingStep === 1 ? 'STEP1〜3 生成中...' : state.generatingStep === 2 ? 'STEP4 生成中...' : 'STEP5〜6 生成中...'
                                   : state.result ? '再生成' : '生成'}
                               </Button>
                             )}
@@ -1207,7 +1618,9 @@ export function Phase2Design() {
                       {state.isGenerating && (
                         <div className="mt-2 p-2 bg-blue-50 border border-blue-200 rounded text-xs text-blue-700 flex items-center gap-2">
                           <div className="animate-spin w-4 h-4 border-2 border-blue-400 border-t-transparent rounded-full" />
-                          {state.generatingStep === 1
+                          {state.generatingStep === 0
+                            ? '問いの評価軸を分析中です...'
+                            : state.generatingStep === 1
                             ? 'STEP1〜3（M-ID接点・構文ポートフォリオ・After構文）を生成中です...'
                             : state.generatingStep === 2
                             ? 'STEP4（構文接続順の検証・補正）を生成中です...'
