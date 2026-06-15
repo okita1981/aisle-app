@@ -4,7 +4,8 @@ import type {
   TheoryDesign, ReconciliationResult, ImplementationReport,
   Phase1Result, Phase2Result, Phase3Result, Phase4Result,
   CompetitorAnalysisResult,
-  AislePageResult, GeneratedPage, ExternalUrlItem,
+  AislePageResult, GeneratedPage, ExternalUrlItem, EntityType,
+  EvidenceStore, EvidenceCandidateStatus, EvidenceItem,
 } from '../types';
 
 // ── Phase0（ログ取得）の入力データ ───────────────────────────────
@@ -46,6 +47,12 @@ interface AppStore extends AppState {
   setAisleResult: (result: AislePageResult | null) => void;
   setGeneratedPage: (page: GeneratedPage | null) => void;
   setExternalUrls: (urls: ExternalUrlItem[]) => void;
+  setEntityType: (type: EntityType) => void;
+  evidenceStore: EvidenceStore | null;
+  setEvidenceStore: (store: EvidenceStore) => void;
+  updateCandidateStatus: (id: string, status: EvidenceCandidateStatus) => void;
+  adoptAllPending: () => void;
+  clearEvidenceStore: () => void;
 }
 
 export const useAppStore = create<AppStore>((set) => ({
@@ -67,6 +74,8 @@ export const useAppStore = create<AppStore>((set) => ({
   aisleResult: null,
   generatedPage: null,
   externalUrls: [{ type: 'note', url: '' }],
+  entityType: 'company',
+  evidenceStore: null,
 
   setPhase0Data: (data) => set({ phase0Data: data }),
   setPhase: (phase) => set({ currentPhase: phase }),
@@ -86,4 +95,49 @@ export const useAppStore = create<AppStore>((set) => ({
   setAisleResult: (result) => set({ aisleResult: result }),
   setGeneratedPage: (page) => set({ generatedPage: page }),
   setExternalUrls: (urls) => set({ externalUrls: urls }),
+  setEntityType: (type) => set({ entityType: type }),
+
+  setEvidenceStore: (store) => set({ evidenceStore: store }),
+
+  updateCandidateStatus: (id, status) => set((state) => {
+    if (!state.evidenceStore) return {};
+    const updatedItems = state.evidenceStore.candidates.items.map(item =>
+      item.id === id ? { ...item, status } : item
+    );
+    const adoptedItems: EvidenceItem[] = updatedItems
+      .filter(item => item.status === 'adopted')
+      .map(({ status: _s, sourceLabel: _l, ...rest }) => rest);
+    return {
+      evidenceStore: {
+        candidates: { ...state.evidenceStore.candidates, items: updatedItems },
+        adopted: {
+          extractedAt: state.evidenceStore.adopted.extractedAt,
+          sourceDescription: state.evidenceStore.adopted.sourceDescription,
+          items: adoptedItems,
+        },
+      },
+    };
+  }),
+
+  adoptAllPending: () => set((state) => {
+    if (!state.evidenceStore) return {};
+    const updatedItems = state.evidenceStore.candidates.items.map(item =>
+      item.status === 'pending' ? { ...item, status: 'adopted' as EvidenceCandidateStatus } : item
+    );
+    const adoptedItems: EvidenceItem[] = updatedItems
+      .filter(item => item.status === 'adopted')
+      .map(({ status: _s, sourceLabel: _l, ...rest }) => rest);
+    return {
+      evidenceStore: {
+        candidates: { ...state.evidenceStore.candidates, items: updatedItems },
+        adopted: {
+          extractedAt: state.evidenceStore.adopted.extractedAt,
+          sourceDescription: state.evidenceStore.adopted.sourceDescription,
+          items: adoptedItems,
+        },
+      },
+    };
+  }),
+
+  clearEvidenceStore: () => set({ evidenceStore: null }),
 }));

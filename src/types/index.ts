@@ -322,11 +322,75 @@ export interface AppearanceSummary {
   implementationProposal: string;
 }
 
+// ===================== Evidence Layer =====================
+
+export type EvidenceType =
+  | 'case'         // 実績・事例
+  | 'client'       // 顧客・取引先
+  | 'feature'      // 特徴・機能・強み
+  | 'metric'       // 数値実績
+  | 'credential'   // 認定・受賞・資格
+  | 'review'       // レビュー・評価・口コミ
+  | 'media'        // メディア掲載
+  | 'method'       // 独自手法・アプローチ
+  | 'availability' // 提供条件・対応範囲
+  | 'comparison'   // 比較・差別化
+  | 'other';
+
+export type EvidenceSourceType =
+  | 'official_site' | 'note' | 'pdf' | 'media' | 'sns' | 'manual' | 'other';
+
+export type EvidenceCandidateStatus = 'pending' | 'adopted' | 'rejected';
+
+export interface EvidenceItem {
+  id: string;
+  type: EvidenceType;
+  title: string;
+  description: string;
+  entityRole: string;          // 必須: 「これは何の根拠か」を明示（例: "ゲーム映像実績"）
+  value?: string;              // 数値・年度・量など
+  tags: string[];
+  sourceUrl?: string;
+  sourceType?: EvidenceSourceType;
+  confidence?: 'high' | 'medium' | 'low';
+}
+
+export interface EvidenceResult {
+  extractedAt: string;
+  sourceDescription: string;
+  items: EvidenceItem[];
+}
+
+export interface EvidenceCandidateItem extends EvidenceItem {
+  status: EvidenceCandidateStatus;
+  sourceLabel: string;         // 抽出元の表示名（"公式サイト" など）
+}
+
+export interface EvidenceCandidateResult {
+  sourceUrls: string[];
+  items: EvidenceCandidateItem[];
+  lastUpdatedAt: string;
+}
+
+export interface EvidenceStore {
+  candidates: EvidenceCandidateResult;
+  adopted: EvidenceResult;
+}
+
+export interface EvaluationAxes {
+  primaryAxes: string[];       // AIがこの問いに回答する際の評価軸（3〜5個）
+  keyTerms: string[];          // 問いに含まれる検索語・関連語
+  expectedAnswerFormat: string; // AIが返す回答の型
+  pIdAlignment: string;        // 評価軸とP-IDの整合理由
+  evidenceHints?: string[];    // Evidence Layer で探すべき根拠の種類
+}
+
 export interface Phase2PerPID {
   pId: string;              // ログ識別・SB-ID命名用（入力順: P-01-01 など）
   promptTypeId?: string;    // 問いの型（P-01〜P-06）: M-ID制約・型別分析に使用
   promptTypeLabel?: string; // 表示用ラベル（例: 比較・評価型）
   promptText: string;
+  evaluationAxes?: EvaluationAxes; // 問い × 商材カテゴリから抽出した評価軸
   mIdMapping: MIdMappingRow[];
   portfolioIntro: {
     intentSummary: string;
@@ -542,6 +606,16 @@ export interface ExternalUrlItem {
   url: string;
 }
 
+/** RefBase Entity の種別 */
+export type EntityType =
+  | 'company'
+  | 'service'
+  | 'product'
+  | 'person'
+  | 'organization'
+  | 'concept'
+  | 'other';
+
 export interface AppState {
   currentPhase: PhaseId;
   logEntries: LogEntry[];
@@ -564,4 +638,6 @@ export interface AppState {
   generatedPage: GeneratedPage | null;
   /** AI向け根拠補完リンク（企業AIプロフィールページ生成用） */
   externalUrls: ExternalUrlItem[];
+  /** RefBase Entity の種別（デフォルト: 'company'） */
+  entityType: EntityType;
 }

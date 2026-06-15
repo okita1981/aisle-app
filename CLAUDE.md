@@ -1,6 +1,6 @@
 # CLAUDE.md — Aisle aisle-app 実装ガイダンス
 
-最終更新: 2026-06-11
+最終更新: 2026-06-12
 本番URL: https://app.aisle-aio.ai
 リポジトリ: `C:\Users\kousu\OneDrive\Desktop\CLAUDE Aisle\aisle-app`
 
@@ -226,10 +226,97 @@ const filtered = index; // 現状は全件表示
 - ✅ RefBase 実装（saveToRefBase / refbase-get.ts / refbase:index:all）
 - ✅ implement.ts JSON parse エラー修正
 
-## 12. 次に着手する優先事項
+## 12. Ver3.0 完了済み事項（2026-06-11）
 
-1. ⬜ **保存完了表示**（生成・更新・削除後のフィードバックUI）
-2. ⬜ **Session管理画面**
-3. ⬜ **RefBase Preview導線**
-4. ⬜ **clientSlug重複管理**（Ver3）
-5. ⬜ **llms.txt clientSlug別対応**（Ver3）
+- ✅ Evidence Trace ログ（[evidence-trace] / [evidence-sort] / [evidence-claude] / [evidence-kv] / [evidence-p05]）
+- ✅ P-ID別 Evidenceウェイト（P_ID_EVIDENCE_WEIGHT: P-01〜P-06）
+- ✅ Evidence KV Store（`evidence:{clientSlug}` キー / adoptedEvidence 空時の fallback 自動読み込み）
+- ✅ Aisle自社 Evidence 15件 KV投入（case×3 / method×4 / feature×6 / comparison×2）
+- ✅ P-05 出典限定モード（credential/media/metric/client 不足時に正直表示・捏造防止）
+- ✅ P-06 専用生成ルール（comparison→method→case の順で推薦理由を深掘り）
+- ✅ KVキー体系に `evidence:{clientSlug}` 追加
+
+## 13. データ構造アーキテクチャメモ（2026-06-12 記録）
+
+### 現状：HTML と RefBase JSON の二重保存構造
+
+```
+Claude API
+    ↓
+ narrative（answer / evidencePoints / faq）
+    ├── generateChildHtml()  →  page:question:{slug}/{questionSlug}   ← HTML
+    └── saveToRefBase()      →  refbase:ref:{slug}/{questionSlug}     ← JSON
+                                page-question-index:{slug}             ← index
+```
+
+- HTML と RefBase JSON は同一 narrative から**同時生成**される。どちらも正本。
+- 片方が破損した場合のリカバリ手段は Claude による再生成のみ。
+
+### 発生した問題（2026-06-12 調査）
+
+P-05 / P-06（citation-001 / why-recommended-001）の RefBase KV データが文字化け。  
+症状：`page-question-index:aisle` と `refbase:ref:aisle/citation-001` 等に U+FFFD・孤立サロゲートが混入。  
+子 HTML（`page:question:aisle/citation-001`）は旧バージョン生成分が残っており正常。  
+対応：`saveToRefBase()` に文字化け検知アボートを実装（[saveToRefBase] ABORTED ログ）。`page-question-index` 更新前にも同様のガードを追加。
+
+### 理想アーキテクチャ（中期課題）
+
+```
+正本 = refbase:ref:{slug}/{questionSlug}（JSON）
+  ↓ 派生
+HTML（page:question:）は RefBase JSON から生成
+```
+
+これにより RefBase が唯一の SoT となり、HTML 破損時でも RefBase から再生成できる。  
+**現状は大改修なため未着手。再生成コストを許容しつつ、防波堤バリデーションで運用する。**
+
+---
+
+## 14. Admin v2 未着手一覧（2026-06-12 記録）
+
+Entity 削除は Admin v2 として後フェーズで設計・実装する。
+
+削除時に操作が必要な KV キー：
+- `refbase:company:{entityId}` — Entity 本体
+- `refbase:index:{entityId}` — Reference questionSlug 一覧
+- `refbase:index:all` から entityId を除去
+- `refbase:ref:{entityId}/*` — 全 Reference KV
+- `page-question-index:{entityId}` — 問い別ページ index
+- `page:index:{entityId}` — 問い別一覧 HTML
+- `page:question:{entityId}/*` — 全問い別 HTML
+- `page:{entityId}` — 旧プロフィール HTML（あれば）
+
+UX 要件：entityId 手入力確認 / 削除対象件数の事前表示。
+
+---
+
+## 15. 課題・未着手一覧（2026-06-12 時点）
+
+### Aisle APP 側
+
+| # | 課題 | 優先度 | メモ |
+|---|------|--------|------|
+| A-01 | **生成済みページ一覧管理画面**（Aisle APP内） | 高 | clientSlug別のquestion一覧・Aisle Hub URL・RefBase Reference URL・更新日・削除/再生成ボタン |
+| A-02 | 生成・更新・削除後のフィードバックUI | 中 | 現状サイレント完了 |
+| A-03 | clientSlug重複管理 | 中 | 同一slugが別セッションで生成されても無警告 |
+| A-04 | Session管理画面 | 低 | 過去セッション一覧・再開 |
+| A-05 | llms.txt clientSlug別対応 | 低 | 現状 page-index:aisle 固定 |
+
+### RefBase（refbase.ai）側
+
+| # | 課題 | 優先度 | メモ |
+|---|------|--------|------|
+| R-01 | **llms.txt の文字化け修正** | 高 | 日本語テキストが文字化けしている。AIクローラーが正しく読めない状態 |
+| R-02 | **Referenceページの未完成** | 高 | /reference/{entityId}/{referenceId} の実ページが未確認 |
+| R-03 | Entity/Reference 件数が実態と乖離 | 高 | トップページに「Entities: 1 · References: 1」と表示されているが実際は P-01/P-05/P-06 の3件が生成済み |
+| R-04 | トップページのデザイン・説明文 | 中 | 最小限のテキストのみ。AI参照知識基盤としての説明が薄い |
+| R-05 | refbase:index:all の削除時同期なし | 低 | Known Limitation L-06 |
+| R-06 | RefBase 専用KVへの分離 | 低 | 現状 Aisle KV 共有（Known Limitation L-04） |
+
+### Evidence・品質
+
+| # | 課題 | 優先度 | メモ |
+|---|------|--------|------|
+| E-01 | Aisle自社 Evidence に client / metric / credential / media がゼロ | 中 | P-01/P-04/P-05/P-06 のウェイト対象typeが機能しない。素材が生まれたら追加 |
+| E-02 | P-05 は出典素材不足のまま公開中 | 低 | 方針として許容済み。素材ができたら seed-evidence.mjs を再実行 |
+| E-03 | 他クライアント向け Evidence 投入フロー未整備 | 中 | seed-evidence.mjs は Aisle自社のみ。他クライアント追加時の運用手順なし |

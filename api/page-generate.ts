@@ -29,6 +29,14 @@ function toSlug(companyName: string): string {
   return `client-${Date.now()}`;
 }
 
+// ── 文字化け検知ヘルパー ──────────────────────────────────────
+// U+FFFD（置換文字）または孤立サロゲート（正規のサロゲートペアを構成しない U+D800–U+DFFF）を検知する。
+// 絵文字など通常のマルチバイト Unicode は弾かない。
+function hasGarbledText(s: string): boolean {
+  if (s.includes('�')) return true;
+  return /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(s);
+}
+
 // ── HTML エスケープ ────────────────────────────────────────────
 function esc(s: string): string {
   return s
@@ -169,11 +177,22 @@ export interface QuestionPageIndexEntry {
 
 // ── RefBase 型定義 ─────────────────────────────────────────────
 
+export type EntityType =
+  | 'company'
+  | 'service'
+  | 'product'
+  | 'person'
+  | 'organization'
+  | 'concept'
+  | 'other';
+
 export interface RefBaseCompany {
-  id: string;        // clientSlug
-  name: string;      // companyName
-  category: string;  // productCategory
-  updatedAt: string; // ISO8601
+  id: string;               // clientSlug
+  name: string;             // companyName
+  category: string;         // productCategory
+  entityType?: EntityType;  // 省略時は 'company' として扱う（後方互換）
+  externalLinks?: Array<{ type: string; url: string }>;
+  updatedAt: string;        // ISO8601
 }
 
 /** 問いと1:1で生成される知識ブロック（将来的に question から独立可能）  */
@@ -1414,18 +1433,32 @@ async function saveToRefBase(
   now: string,
 ): Promise<void> {
   try {
-    // U+FFFD が含まれている場合、文字化けの可能性をログに記録
-    if (promptText.includes('�')) {
-      console.warn(`[saveToRefBase] promptText contains replacement characters (U+FFFD) for ${clientSlug}/${questionSlug}. The source data may be corrupted. Bad chars: ${[...promptText].filter(c => c === '�').length}/${promptText.length}`);
+    // 文字化け検知: U+FFFD または孤立サロゲートが含まれる場合は KV 書き込みを中止する
+    const garbledFields: string[] = [];
+    if (hasGarbledText(promptText)) garbledFields.push('promptText');
+    if (hasGarbledText(narrative.answer)) garbledFields.push('answer');
+    if (narrative.evidencePoints.some(e => hasGarbledText(e))) garbledFields.push('evidencePoints');
+    if (narrative.faq.some(f => hasGarbledText(f.question) || hasGarbledText(f.answer))) garbledFields.push('faq');
+    if (garbledFields.length > 0) {
+      console.error(`[saveToRefBase] ABORTED: garbled text (U+FFFD or lone surrogate) in [${garbledFields.join(', ')}] for ${clientSlug}/${questionSlug}. RefBase KV write skipped.`);
+      return;
     }
-
     const REFBASE_BASE = 'https://www.refbase.ai';
     const pageUrl = `${REFBASE_BASE}/reference/${clientSlug}/${questionSlug}`;
+
+    // 既存 Entity から entityType / externalLinks を引き継ぐ（問い生成による上書きで失わないよう保護）
+    const existingEntity = await kv.get<RefBaseCompany>(`refbase:company:${clientSlug}`);
 
     const company: RefBaseCompany = {
       id: clientSlug,
       name: companyName,
       category: productCategory,
+      // entityType: 既存値 → 'company' の順で引き継ぐ（引数受け渡しは将来対応）
+      entityType: existingEntity?.entityType ?? 'company',
+      // externalLinks: 既存値を保持（問い生成では変更しない）
+      ...(existingEntity?.externalLinks !== undefined
+        ? { externalLinks: existingEntity.externalLinks }
+        : {}),
       updatedAt: now,
     };
 
@@ -1606,6 +1639,44 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
   try {
     const rawBody = JSON.parse(await readBody(req)) as Record<string, unknown>;
 
+    // ── RefBase Entity 更新フロー ─────────────────────────────
+    if ((rawBody as Record<string, unknown>).aisleMode === 'refbaseEntityUpdate') {
+      const { clientSlug: reqSlug, companyName: reqName, productCategory: reqCat, externalLinks, entityType: reqEntityType } =
+        rawBody as { clientSlug?: string; companyName?: string; productCategory?: string; externalLinks?: Array<{ type: string; url: string }>; entityType?: EntityType };
+
+      if (!reqSlug || !SLUG_PATTERN.test(reqSlug)) {
+        res.statusCode = 400;
+        res.setHeader('Content-Type', 'application/json');
+        res.end(JSON.stringify({ ok: false, error: 'clientSlug が不正です' }));
+        return;
+      }
+
+      const now = new Date().toISOString();
+      const existing = await kv.get<RefBaseCompany>(`refbase:company:${reqSlug}`);
+      const updated: RefBaseCompany = {
+        id: reqSlug,
+        name: reqName || existing?.name || reqSlug,
+        category: reqCat || existing?.category || '',
+        ...(existing ?? {}),
+        entityType: reqEntityType ?? existing?.entityType ?? 'company',
+        externalLinks: (externalLinks ?? []).filter(u => u.url.trim()),
+        updatedAt: now,
+      };
+      await kv.set(`refbase:company:${reqSlug}`, updated);
+
+      const globalIndex = await kv.get<string[]>('refbase:index:all') ?? [];
+      if (!globalIndex.includes(reqSlug)) {
+        await kv.set('refbase:index:all', [...globalIndex, reqSlug]);
+      }
+
+      const entityUrl = `https://www.refbase.ai/entity/${reqSlug}`;
+      console.log(`[refbase] entity updated: ${reqSlug}`);
+      res.statusCode = 200;
+      res.setHeader('Content-Type', 'application/json');
+      res.end(JSON.stringify({ ok: true, url: entityUrl, slug: reqSlug }));
+      return;
+    }
+
     // ── Aisleページフロー ─────────────────────────────────────
     if ('aisleMode' in rawBody) {
       const aisleReq = rawBody as unknown as AislePageRequest;
@@ -1676,14 +1747,18 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
           await kv.set(`page:question:${clientSlug}/${questionSlug}`, childHtml);
           await saveToRefBase(clientSlug, companyName, productCategory, questionSlug, pid.promptText, baseId, narrative, adoptedEvidence, now);
 
-          newQEntries.push({
-            questionSlug,
-            promptTypeId: baseId,
-            promptTypeSlug,
-            promptText: pid.promptText,
-            sessionKey,
-            generatedAt: now,
-          });
+          if (hasGarbledText(pid.promptText)) {
+            console.error(`[garbled-detected] add: ${questionSlug} promptText contains garbled chars — skipping page-question-index entry`);
+          } else {
+            newQEntries.push({
+              questionSlug,
+              promptTypeId: baseId,
+              promptTypeSlug,
+              promptText: pid.promptText,
+              sessionKey,
+              generatedAt: now,
+            });
+          }
           created.push(`${HUB_BASE_URL}/${clientSlug}/questions/${questionSlug}`);
         }
 
@@ -1695,7 +1770,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         await kv.set(`page:index:${clientSlug}`, generateQuestionParentHtml(updatedQIndex, now, clientSlug, companyName, productCategory));
 
         res.setHeader('Content-Type', 'application/json');
-        res.end(JSON.stringify({ ok: true, parentUrl: `${HUB_BASE_URL}/${clientSlug}`, llmsTxtUrl: `${HUB_BASE_URL}/llms.txt`, created, skipped: [], updated: [] }));
+        res.end(JSON.stringify({ ok: true, parentUrl: `${HUB_BASE_URL}/${clientSlug}`, llmsTxtUrl: `${HUB_BASE_URL}/llms.txt`, created, skipped: [], updated: [], indexUpdated: newQEntries.length }));
 
       } else {
         // ── update: questionSlug 単位で再生成 ────────────────────────
@@ -1709,14 +1784,30 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
           const baseId = qEntry.promptTypeId;
 
           // promptText が一致する perPID → なければ同P-IDの先頭を使用
-          const pid =
+          // さらに見つからない場合は、子HTMLのタイトルから正しいpromptTextを復元してフォールバックpidを構築する
+          let pid =
             validPerPID.find(p => {
               const b = p.promptTypeId.split('-').slice(0, 2).join('-');
               return b === baseId && p.promptText === qEntry.promptText;
             }) ??
             validPerPID.find(p => p.promptTypeId.split('-').slice(0, 2).join('-') === baseId);
 
-          if (!pid) continue;
+          if (!pid) {
+            // 現在セッションに該当P-IDがない場合: 子HTMLのtitleから正しいpromptTextを読み取って最小限のpidを構築
+            const childHtml = await kv.get<string>(`page:question:${clientSlug}/${questionSlug}`);
+            const titleMatch = childHtml?.match(/<title>([^<]+?) [|｜] /);
+            const recoveredPromptText = titleMatch?.[1]?.trim() ?? qEntry.promptText;
+            console.log(`[update-fallback] ${questionSlug}: no matching pid in perPID for ${baseId}, using fallback pid with promptText="${recoveredPromptText.slice(0, 40)}"`);
+            pid = {
+              pId: baseId,
+              promptTypeId: baseId,
+              promptTypeLabel: undefined,
+              promptText: recoveredPromptText,
+              mIdMapping: [],
+              afterBun: [],
+              eIdComplement: [],
+            } as AislePerPID;
+          }
 
           const narrative = await callClaudeForChildPage(pid, companyName, productCategory, adoptedEvidence)
             ?? buildFallbackNarrative(pid, baseId, companyName, productCategory);
@@ -1725,9 +1816,17 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
           await kv.set(`page:question:${clientSlug}/${questionSlug}`, childHtml);
           await saveToRefBase(clientSlug, companyName, productCategory, questionSlug, pid.promptText, baseId, narrative, adoptedEvidence, now);
 
-          // インデックスのgeneratedAt を更新
+          // インデックスの promptText と generatedAt を更新
+          // 文字化けがある場合は promptText は更新せず generatedAt のみ更新する
           const idx = updatedQIndex.findIndex(e => e.questionSlug === questionSlug);
-          if (idx >= 0) updatedQIndex[idx] = { ...updatedQIndex[idx], generatedAt: now };
+          if (idx >= 0) {
+            if (hasGarbledText(pid.promptText)) {
+              console.error(`[garbled-detected] update: ${questionSlug} promptText contains garbled chars — keeping existing promptText in index`);
+              updatedQIndex[idx] = { ...updatedQIndex[idx], generatedAt: now };
+            } else {
+              updatedQIndex[idx] = { ...updatedQIndex[idx], promptText: pid.promptText, generatedAt: now };
+            }
+          }
 
           updated.push(`${HUB_BASE_URL}/${clientSlug}/questions/${questionSlug}`);
         }

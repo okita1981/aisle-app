@@ -3,7 +3,7 @@ import { useAppStore } from '../store/useAppStore';
 import { Card, CardHeader, CardBody } from '../components/Card';
 import { Button } from '../components/Button';
 import { Badge } from '../components/Badge';
-import type { Phase4Result, ReconcileMatrixRow, GeneratedPage } from '../types';
+import type { Phase4Result, ReconcileMatrixRow } from '../types';
 import { filterIds } from '../utils/idFilter';
 
 // ─── 優先度カラー ──────────────────────────────────────────────
@@ -420,10 +420,11 @@ const validateClientSlug = (val: string): string => {
 
 export function Phase4Implementation() {
   const {
-    phase1Result, phase2Result, phase3Result, phase4Result, setPhase4Result,
+    phase2Result, phase3Result, phase4Result, setPhase4Result,
     aisleResult, setAisleResult,
     generatedPage, setGeneratedPage,
     externalUrls, setExternalUrls,
+    entityType, setEntityType,
     evidenceStore,
   } = useAppStore();
 
@@ -448,13 +449,8 @@ export function Phase4Implementation() {
   };
 
   const [isGeneratingPage, setIsGeneratingPage] = useState(false);
-  const [isDeletingPage, setIsDeletingPage] = useState(false);
   const [pageError, setPageError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
-
-  // ── 上書き確認ダイアログ ────────────────────────────────────
-  const [overwriteDialog, setOverwriteDialog] = useState<{ slug: string } | null>(null);
-  const [isCheckingPage, setIsCheckingPage] = useState(false);
 
   // ── Aisleページ管理 ──────────────────────────────────────────
   const [aisleMode, setAisleMode] = useState<'add' | 'update'>('add');
@@ -687,30 +683,6 @@ export function Phase4Implementation() {
     return null; // 純粋な日本語会社名は判定不能
   };
 
-  // 新規生成ボタンのクリックハンドラ（既存ページ確認 → ダイアログ or 即生成）
-  const handleNewPageClick = async () => {
-    if (!phase2Result || !phase4Result) return;
-    if (!clientSlugInput || clientSlugError) return; // バリデーションガード
-    const slug = clientSlugInput;
-
-    setIsCheckingPage(true);
-    try {
-      const resp = await fetch(`/api/page-get?slug=${encodeURIComponent(slug)}`);
-      if (resp.status === 200) {
-        // 既存ページあり → 確認ダイアログ
-        setOverwriteDialog({ slug });
-      } else {
-        // 既存ページなし → 即新規生成
-        await handleGeneratePage('new');
-      }
-    } catch {
-      // エラー時はそのまま新規生成
-      await handleGeneratePage('new');
-    } finally {
-      setIsCheckingPage(false);
-    }
-  };
-
   // 突合結果から実装対象候補（到達可能性 低/中）を抽出
   const candidateItems = useMemo<ReconcileMatrixRow[]>(() => {
     if (!phase3Result) return [];
@@ -798,113 +770,38 @@ export function Phase4Implementation() {
     }
   };
 
-  // ── AI専用ページ生成（mode: 'new' | 'append' | 'update'） ───
-  const handleGeneratePage = async (mode: 'new' | 'append' | 'update' = 'new') => {
-    if (!phase2Result || !phase4Result) return;
+  const handleUpdateRefBaseEntity = async () => {
+    if (!clientSlugInput) return;
     setIsGeneratingPage(true);
     setPageError(null);
-
     try {
-      // M-ID別にAfter構文を集約（重複排除）
-      const mIdMap = new Map<string, { mName: string; afterTexts: string[] }>();
-      for (const pid of phase2Result.perPID) {
-        for (const bun of pid.afterBun) {
-          if (!bun.afterText) continue;
-          if (!mIdMap.has(bun.mId)) {
-            mIdMap.set(bun.mId, { mName: bun.mName, afterTexts: [] });
-          }
-          const entry = mIdMap.get(bun.mId)!;
-          if (!entry.afterTexts.includes(bun.afterText)) {
-            entry.afterTexts.push(bun.afterText);
-          }
-        }
-      }
-
-      const promptTexts = phase2Result.perPID
-        .map(p => p.promptText)
-        .filter(Boolean);
-
-      const mIdSections = Array.from(mIdMap.entries()).map(([mId, { mName, afterTexts }]) => ({
-        mId, mName, afterTexts,
-      }));
-
-      // P-IDリスト（重複排除）
-      const pIds = [...new Set(phase2Result.perPID.map(p => p.pId).filter(Boolean))];
-      // 問いの型IDリスト（重複排除）
-      const promptTypeIds = [...new Set(phase2Result.perPID.map(p => p.promptTypeId).filter((v): v is string => !!v))];
-
-      // K-IDスコアマップ: KIdScoreRow[] → Record<string, string>（K-ID → ◎/○/△/×）
-      const kIdScoreMap = phase1Result?.sub3?.kIdScoreMap
-        ? Object.fromEntries(phase1Result.sub3.kIdScoreMap.map(k => [k.kId, k.score]))
-        : undefined;
-
-      // K-IDマトリクス: KIdMatrixRow[] → Record<string, Record<string, string>>（P-ID → K-ID → "35%"）
-      const kIdMatrix = phase1Result?.sub3?.kIdMatrix
-        ? Object.fromEntries(phase1Result.sub3.kIdMatrix.map(r => [r.promptId, r.rates]))
-        : undefined;
-
+      const companyName = phase2Result?.companyName ?? phase4Result?.companyName ?? '';
+      const productCategory = phase2Result?.productCategory ?? phase4Result?.productCategory ?? '';
       const resp = await fetch('/api/page-generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          companyName: phase2Result.companyName,
-          productCategory: phase2Result.productCategory,
-          productDescription: phase2Result.productDescription ?? '',
-          promptTexts,
-          mIdSections,
-          implementationSummary: phase4Result.prioritySummary,
-          externalUrls: externalUrls.filter(u => u.url.trim()),
-          mode,
-          pIds,
-          promptTypeIds,  // 問いの型IDリスト（P-ID型別ページ生成に使用）
-          kIdScoreMap,
-          kIdMatrix,
-          clientSlug: clientSlugInput || undefined,
+          aisleMode: 'refbaseEntityUpdate',
+          clientSlug: clientSlugInput,
+          companyName,
+          productCategory,
+          entityType,
+          externalLinks: externalUrls.filter(u => u.url.trim()),
         }),
       });
-
-      const json = await resp.json() as {
-        ok: boolean;
-        slug?: string;
-        url?: string;
-        updatedAt?: string;
-        error?: string;
-      };
-      if (!json.ok) throw new Error(json.error ?? 'ページ生成に失敗しました');
-
-      const now = json.updatedAt ?? new Date().toISOString();
-      const newPage: GeneratedPage = {
-        slug: json.slug!,
+      const json = await resp.json() as { ok: boolean; url?: string; slug?: string; error?: string };
+      if (!json.ok) throw new Error(json.error ?? '更新に失敗しました');
+      const now = new Date().toISOString();
+      setGeneratedPage({
         url: json.url!,
-        generatedAt: mode === 'new' ? now : (generatedPage?.generatedAt ?? now),
-        updatedAt: mode !== 'new' ? now : undefined,
-      };
-      setGeneratedPage(newPage);
+        slug: json.slug!,
+        generatedAt: generatedPage?.generatedAt ?? now,
+        updatedAt: now,
+      });
     } catch (e) {
       setPageError(e instanceof Error ? e.message : String(e));
     } finally {
       setIsGeneratingPage(false);
-    }
-  };
-
-  const handleDeletePage = async () => {
-    if (!generatedPage) return;
-    setIsDeletingPage(true);
-    setPageError(null);
-
-    try {
-      const resp = await fetch('/api/page-delete', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ slug: generatedPage.slug }),
-      });
-      const json = await resp.json() as { ok: boolean; error?: string };
-      if (!json.ok) throw new Error(json.error ?? '削除に失敗しました');
-      setGeneratedPage(null);
-    } catch (e) {
-      setPageError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setIsDeletingPage(false);
     }
   };
 
@@ -1381,24 +1278,44 @@ export function Phase4Implementation() {
             </CardBody>
           </Card>
 
-          {/* ── 企業AIプロフィールページ ─────────────────────────────── */}
+          {/* ── RefBase Entity Hub ──────────────────────────────────── */}
           <Card>
             <CardHeader
-              title="企業AIプロフィールページ"
-              subtitle="GPT・Perplexityが会社情報を参照しやすいAI向けページを生成します"
+              title="RefBase Entity Hub"
+              subtitle="note・LinkedIn・PR記事などの外部情報源をRefBase Entityに登録します"
             />
             <CardBody>
               <div className="space-y-4">
                 {/* 説明 */}
                 <div className="bg-indigo-50 border border-indigo-100 rounded-lg p-4 text-sm text-indigo-700 space-y-2">
-                  <div className="font-semibold text-indigo-800">🏢 企業AIプロフィールページとは？</div>
-                  <p>会社単位でAIが参照しやすい構造のHTMLページを生成します。診断結果をテーマ別に整理し、GPT・Perplexityなどが会社情報を正確に引用できる形で公開します。</p>
-                  <p>このページは診断レポートと合わせて、<br />2つの納品物として提供されます：</p>
+                  <div className="font-semibold text-indigo-800">📡 RefBase Entity Hub とは？</div>
+                  <p>生成AIが問いに答える際に参照できる「会社・サービス単位の知識拠点」です。問い別Referenceに加え、外部情報源（note / LinkedIn / PR記事など）をAI向けに構造化して公開します。</p>
                   <ul className="list-none space-y-0.5 pl-1">
                     <li>・<span className="font-medium">診断レポート（PDF）</span>：なぜ出ないかの構造分析と実装設計書</li>
-                    <li>・<span className="font-medium">企業AIプロフィールページ（HTML）</span>：AIが参照・理解しやすい情報ページ</li>
+                    <li>・<span className="font-medium">RefBase Entity Hub</span>：AIが参照できる外部情報源の公開ページ</li>
+                    <li>・<span className="font-medium">RefBase Reference</span>：問い別の回答・根拠・FAQページ</li>
                   </ul>
-                  <p className="font-medium pt-1">公開URL：<code className="bg-white px-1 rounded text-xs">app.aisle-aio.ai/{clientSlugInput || '（公開URL識別子を設定してください）'}/profile</code></p>
+                  <p className="font-medium pt-1">公開URL：<code className="bg-white px-1 rounded text-xs">www.refbase.ai/entity/{clientSlugInput || '（公開URL識別子を設定してください）'}</code></p>
+                </div>
+
+                {/* Entity Type */}
+                <div>
+                  <label className="text-sm font-medium text-slate-700 block mb-1.5">
+                    Entity タイプ
+                  </label>
+                  <select
+                    value={entityType}
+                    onChange={e => setEntityType(e.target.value as import('../types').EntityType)}
+                    className="border border-slate-300 rounded-lg px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-400 bg-white"
+                  >
+                    <option value="company">Company（企業）</option>
+                    <option value="service">Service（サービス）</option>
+                    <option value="product">Product（商品）</option>
+                    <option value="person">Person（個人・人物）</option>
+                    <option value="organization">Organization（団体）</option>
+                    <option value="concept">Concept（概念）</option>
+                    <option value="other">Other（その他）</option>
+                  </select>
                 </div>
 
                 {/* 外部リソース（複数URL） */}
@@ -1453,59 +1370,47 @@ export function Phase4Implementation() {
                   </p>
                 </div>
 
-                {/* 生成前：新規ボタン */}
-                {!generatedPage && (
-                  <div className="flex items-center gap-3">
-                    <button
-                      onClick={handleNewPageClick}
-                      disabled={isGeneratingPage || isCheckingPage || !!clientSlugError || !clientSlugInput}
-                      className={`px-5 py-2.5 rounded-lg text-sm font-semibold transition-all flex items-center gap-2 shadow-sm ${
-                        isGeneratingPage || isCheckingPage || !!clientSlugError || !clientSlugInput
-                          ? 'bg-slate-300 text-slate-500 cursor-not-allowed'
-                          : 'bg-indigo-600 text-white hover:bg-indigo-700 active:scale-95'
-                      }`}
-                    >
-                      {isCheckingPage ? (
-                        <>
-                          <svg className="animate-spin w-4 h-4" viewBox="0 0 24 24" fill="none">
-                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
-                          </svg>
-                          既存ページを確認中...
-                        </>
-                      ) : isGeneratingPage ? (
-                        <>
-                          <svg className="animate-spin w-4 h-4" viewBox="0 0 24 24" fill="none">
-                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
-                          </svg>
-                          生成中...
-                        </>
-                      ) : (
-                        <>🌐 AI専用ページを生成する</>
-                      )}
-                    </button>
-                    <span className="text-xs text-slate-400">
-                      ※ 同じ会社名のページが既存の場合は確認ダイアログが表示されます
-                    </span>
-                  </div>
-                )}
+                {/* Entity Hub 更新ボタン */}
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={handleUpdateRefBaseEntity}
+                    disabled={isGeneratingPage || !!clientSlugError || !clientSlugInput}
+                    className={`px-5 py-2.5 rounded-lg text-sm font-semibold transition-all flex items-center gap-2 shadow-sm ${
+                      isGeneratingPage || !!clientSlugError || !clientSlugInput
+                        ? 'bg-slate-300 text-slate-500 cursor-not-allowed'
+                        : 'bg-indigo-600 text-white hover:bg-indigo-700 active:scale-95'
+                    }`}
+                  >
+                    {isGeneratingPage ? (
+                      <>
+                        <svg className="animate-spin w-4 h-4" viewBox="0 0 24 24" fill="none">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+                        </svg>
+                        更新中...
+                      </>
+                    ) : (
+                      <>📡 RefBase Entity を更新する</>
+                    )}
+                  </button>
+                  <span className="text-xs text-slate-400">
+                    外部情報源なしで実行すると既存リンクが削除されます
+                  </span>
+                </div>
 
-                {/* 生成後：URL表示 + 追記/更新/削除ボタン */}
+                {/* 更新後：RefBase Entity URL表示 */}
                 {generatedPage && (
                   <div className="bg-green-50 border border-green-200 rounded-xl p-5 space-y-4">
                     <div className="flex items-center justify-between flex-wrap gap-2">
                       <div className="flex items-center gap-2">
                         <span className="text-green-600 text-xl">✅</span>
-                        <span className="font-semibold text-green-800">企業AIプロフィールページが生成されました</span>
+                        <span className="font-semibold text-green-800">RefBase Entity Hub が更新されました</span>
                         <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-green-600 text-white text-xs font-semibold">
-                          🌐 公開済み
+                          📡 公開済み
                         </span>
                       </div>
-                      {/* 日時表示 */}
                       <div className="text-right text-xs text-slate-500 space-y-0.5">
-                        <div className="text-slate-400">URLからアクセスできます</div>
-                        <div>生成：{new Date(generatedPage.generatedAt).toLocaleString('ja-JP')}</div>
+                        <div className="text-slate-400">RefBase で確認できます</div>
                         {generatedPage.updatedAt && (
                           <div className="text-indigo-600 font-medium">
                             最終更新：{new Date(generatedPage.updatedAt).toLocaleString('ja-JP')}
@@ -1525,7 +1430,6 @@ export function Phase4Implementation() {
                       </button>
                     </div>
 
-                    {/* アクションボタン（既存ページあり：追記/上書き） */}
                     <div className="flex items-center gap-3 flex-wrap">
                       <a
                         href={generatedPage.url}
@@ -1533,45 +1437,12 @@ export function Phase4Implementation() {
                         rel="noopener noreferrer"
                         className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-semibold hover:bg-indigo-700 transition-colors"
                       >
-                        🔗 ページを開く
+                        🔗 Entity Hub を開く
                       </a>
-                      {/* 追記ボタン（メイン） */}
-                      <button
-                        onClick={() => handleGeneratePage('append')}
-                        disabled={isGeneratingPage}
-                        className="px-4 py-2 bg-indigo-50 border border-indigo-300 text-indigo-700 rounded-lg text-sm font-semibold hover:bg-indigo-100 transition-colors disabled:opacity-50"
-                      >
-                        {isGeneratingPage ? (
-                          <span className="flex items-center gap-1.5">
-                            <svg className="animate-spin w-3.5 h-3.5" viewBox="0 0 24 24" fill="none">
-                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
-                            </svg>
-                            追記中...
-                          </span>
-                        ) : '➕ 追記する'}
-                      </button>
-                      {/* 上書き更新（サブ） */}
-                      <button
-                        onClick={() => handleGeneratePage('update')}
-                        disabled={isGeneratingPage}
-                        className="px-4 py-2 bg-white border border-slate-300 text-slate-600 rounded-lg text-sm font-medium hover:border-slate-400 transition-colors disabled:opacity-50"
-                      >
-                        🔄 上書き更新
-                      </button>
-                      <button
-                        onClick={handleDeletePage}
-                        disabled={isDeletingPage}
-                        className="px-4 py-2 bg-red-50 border border-red-200 text-red-700 rounded-lg text-sm font-medium hover:bg-red-100 transition-colors disabled:opacity-50"
-                      >
-                        {isDeletingPage ? '削除中...' : '🗑️ ページを削除'}
-                      </button>
                     </div>
 
-                    {/* slug情報 */}
                     <div className="text-xs text-slate-400">
-                      slug: <code className="bg-slate-100 px-1 rounded">{generatedPage.slug}</code>
-                      　|　mode: 追記は既存ページへ新セクションを挿入 / 上書き更新は全体を再生成
+                      entity: <code className="bg-slate-100 px-1 rounded">{generatedPage.slug}</code>
                     </div>
                   </div>
                 )}
@@ -1598,63 +1469,6 @@ export function Phase4Implementation() {
         </>
       )}
 
-      {/* ── 上書き確認ダイアログ ────────────────────────────────── */}
-      {overwriteDialog && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6">
-            <div className="flex items-start gap-3 mb-5">
-              <span className="text-2xl flex-shrink-0">⚠️</span>
-              <div>
-                <h3 className="font-bold text-slate-800 text-lg leading-snug">
-                  既存ページが見つかりました
-                </h3>
-                <p className="text-sm text-slate-500 mt-1">
-                  スラグ <code className="bg-slate-100 px-1.5 py-0.5 rounded text-xs font-mono text-slate-700">{overwriteDialog.slug}</code> にすでにページが存在します。
-                  どの操作を行いますか？
-                </p>
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              {/* 上書き */}
-              <button
-                onClick={async () => { setOverwriteDialog(null); await handleGeneratePage('update'); }}
-                className="w-full px-4 py-3 bg-indigo-600 text-white rounded-xl text-sm font-semibold hover:bg-indigo-700 active:scale-95 transition-all text-left flex items-start gap-3"
-              >
-                <span className="text-base flex-shrink-0 mt-0.5">🔄</span>
-                <div>
-                  <div>上書きする</div>
-                  <div className="text-xs text-indigo-200 font-normal mt-0.5">
-                    既存ページのテーマ別セクションを新しいコンテンツで差し替えます
-                  </div>
-                </div>
-              </button>
-
-              {/* 追記 */}
-              <button
-                onClick={async () => { setOverwriteDialog(null); await handleGeneratePage('append'); }}
-                className="w-full px-4 py-3 bg-green-600 text-white rounded-xl text-sm font-semibold hover:bg-green-700 active:scale-95 transition-all text-left flex items-start gap-3"
-              >
-                <span className="text-base flex-shrink-0 mt-0.5">➕</span>
-                <div>
-                  <div>追記する</div>
-                  <div className="text-xs text-green-200 font-normal mt-0.5">
-                    既存ページを保持したまま、新しいセクションを末尾に追加します
-                  </div>
-                </div>
-              </button>
-
-              {/* キャンセル */}
-              <button
-                onClick={() => setOverwriteDialog(null)}
-                className="w-full px-4 py-3 bg-slate-100 text-slate-700 rounded-xl text-sm font-medium hover:bg-slate-200 transition-colors"
-              >
-                キャンセル
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
