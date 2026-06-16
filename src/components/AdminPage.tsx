@@ -105,7 +105,7 @@ export function AdminPage() {
 
   // ── 全slug取得（マウント時1回） ───────────────────────────────
   useEffect(() => {
-    fetch('/api/refbase-get?type=all')
+    fetch('/api/refbase-get?type=all', { headers: { 'X-Aisle-Admin': '1' } })
       .then(r => r.json())
       .then((j: { ok: boolean; entityIds?: string[] }) => {
         if (j.ok && j.entityIds) setAllSlugs(j.entityIds);
@@ -142,7 +142,7 @@ export function AdminPage() {
     setError(null);
     setData(null);
     try {
-      const resp = await fetch(`/api/refbase-get?clientSlug=${encodeURIComponent(s)}`);
+      const resp = await fetch(`/api/refbase-get?clientSlug=${encodeURIComponent(s)}`, { headers: { 'X-Aisle-Admin': '1' } });
       const json = await resp.json() as {
         ok: boolean;
         company?: AdminEntity;
@@ -167,6 +167,7 @@ export function AdminPage() {
     try {
       const resp = await fetch(
         `/api/refbase-get?clientSlug=${encodeURIComponent(ref.companyId)}&questionSlug=${encodeURIComponent(ref.id)}`,
+        { headers: { 'X-Aisle-Admin': '1' } },
       );
       const json = await resp.json() as {
         ok: boolean;

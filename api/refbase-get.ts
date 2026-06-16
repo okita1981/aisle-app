@@ -4,10 +4,32 @@ import type { RefBaseCompany, RefBaseReference } from './page-generate.js';
 
 export const config = { maxDuration: 15 };
 
+const EM_SECRET = process.env.EM_SHARED_SECRET;
+
+function isAuthorized(req: IncomingMessage): boolean {
+  const headers = req.headers as Record<string, string | string[] | undefined>;
+
+  // Aisle APP 管理画面（same-origin）からのリクエスト
+  // ブラウザの CORS 制約により外部サイトはカスタムヘッダーを付与できない
+  if (headers['x-aisle-admin'] === '1') return true;
+
+  // Emergence Monitor server-side proxy からのリクエスト（cross-origin）
+  if (EM_SECRET && headers['authorization'] === `Bearer ${EM_SECRET}`) return true;
+
+  return false;
+}
+
 export default async function handler(req: IncomingMessage, res: ServerResponse): Promise<void> {
   res.setHeader('Access-Control-Allow-Origin', '*');
   if (req.method === 'OPTIONS') { res.statusCode = 204; res.end(); return; }
   if (req.method !== 'GET') { res.statusCode = 405; res.end(); return; }
+
+  if (!isAuthorized(req)) {
+    res.statusCode = 401;
+    res.setHeader('Content-Type', 'application/json');
+    res.end(JSON.stringify({ ok: false, error: 'Unauthorized' }));
+    return;
+  }
 
   try {
     const url = new URL(req.url ?? '/', 'http://localhost');
