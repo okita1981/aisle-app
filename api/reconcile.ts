@@ -1,4 +1,4 @@
-import type { IncomingMessage, ServerResponse } from 'node:http';
+﻿import type { IncomingMessage, ServerResponse } from 'node:http';
 
 export const config = { maxDuration: 60 };
 
@@ -147,7 +147,7 @@ JSONで返答してください。`;
       'content-type': 'application/json',
     },
     body: JSON.stringify({
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-sonnet-4-6',
       max_tokens: 4096,
       system: RECONCILE_SYSTEM_PROMPT,
       messages: [{ role: 'user', content: userContent }],

@@ -1,4 +1,4 @@
-# CLAUDE.md — Aisle aisle-app 実装ガイダンス
+﻿# CLAUDE.md — Aisle aisle-app 実装ガイダンス
 
 最終更新: 2026-06-12
 本番URL: https://app.aisle-aio.ai
@@ -23,7 +23,7 @@ Aisle は「クライアント企業が生成AIの出力に自然に出現し続
 | フロントエンド | React 18 + Vite + TypeScript + Tailwind CSS |
 | 状態管理 | Zustand（単一グローバルストア） |
 | バックエンド | Vercel Functions（`api/*.ts`、maxDuration: 60s） |
-| LLM | Anthropic Claude（`claude-sonnet-4-20250514`） |
+| LLM | Anthropic Claude（`claude-sonnet-4-6`） |
 | 永続化 | Vercel KV（`@vercel/kv`） |
 | ホスト | Vercel SPA（`app.aisle-aio.ai`） |
 

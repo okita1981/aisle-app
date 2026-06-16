@@ -2,8 +2,8 @@
  * _llm.ts — LLM呼び出し共通ユーティリティ
  *
  * フォールバック順序:
- *   1. claude-sonnet-4-20250514
- *   2. claude-3-5-haiku-20241022
+ *   1. claude-sonnet-4-6
+ *   2. claude-haiku-4-5-20251001
  *   3. gemini-2.5-flash（GEMINI_API_KEY が設定されている場合のみ）
  *
  * 次のモデルへフォールバックする条件:
@@ -31,7 +31,7 @@ interface ModelConfig {
 
 function buildModelList(): ModelConfig[] {
   const list: ModelConfig[] = [
-    { type: 'anthropic', label: 'claude-sonnet-4-20250514', model: 'claude-sonnet-4-20250514' },
+    { type: 'anthropic', label: 'claude-sonnet-4-6', model: 'claude-sonnet-4-6' },
     { type: 'anthropic', label: 'claude-haiku-4-5-20251001', model: 'claude-haiku-4-5-20251001' },
   ];
   if (process.env.GEMINI_API_KEY) {

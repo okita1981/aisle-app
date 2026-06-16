@@ -1,4 +1,4 @@
-import type { IncomingMessage, ServerResponse } from 'node:http';
+﻿import type { IncomingMessage, ServerResponse } from 'node:http';
 
 export const maxDuration = 60;
 
@@ -39,7 +39,7 @@ async function structureWithClaude(rawText: string): Promise<string> {
       'content-type': 'application/json',
     },
     body: JSON.stringify({
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-sonnet-4-6',
       max_tokens: 600,
       system: STRUCTURE_SYSTEM,
       messages: [{ role: 'user', content: rawText.slice(0, MAX_CHARS) }],
