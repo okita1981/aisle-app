@@ -1,6 +1,6 @@
 ﻿import type { IncomingMessage, ServerResponse } from 'node:http';
 
-export const config = { maxDuration: 60 };
+export const config = { maxDuration: 120 };
 
 function readBody(req: IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -288,21 +288,28 @@ JSONで返答してください。`;
   const sbCount = Array.isArray(step3Slim) ? (step3Slim as unknown[]).length : 0;
   console.log(`[design-step3] pId=${pId} input_chars=${userContent.length} sb_count=${sbCount}`);
 
-  const resp = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
-      'content-type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 3500,
-      system: DESIGN_STEP3_SYSTEM_PROMPT,
-      messages: [{ role: 'user', content: userContent }],
-    }),
-    signal: AbortSignal.timeout(55000),
-  });
+  let resp: Response;
+  try {
+    resp = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-6',
+        max_tokens: 3500,
+        system: DESIGN_STEP3_SYSTEM_PROMPT,
+        messages: [{ role: 'user', content: userContent }],
+      }),
+      signal: AbortSignal.timeout(100000),
+    });
+  } catch (fetchErr) {
+    const errMsg = fetchErr instanceof Error ? fetchErr.message : String(fetchErr);
+    console.error(`[design-step3] fetch failed: ${errMsg}`);
+    throw new Error(`Anthropic APIへの接続に失敗しました: ${errMsg}`);
+  }
 
   let anthropicRaw = '';
   try {
