@@ -1,6 +1,6 @@
 ﻿import type { IncomingMessage, ServerResponse } from 'node:http';
 
-export const config = { maxDuration: 60 };
+export const config = { maxDuration: 120 };
 
 function readBody(req: IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
