@@ -122,7 +122,7 @@ ${rawText.slice(0, MAX_INPUT_CHARS)}
       system: EVIDENCE_SYSTEM_PROMPT,
       messages: [{ role: 'user', content: userContent }],
     }),
-    signal: AbortSignal.timeout(35000),
+    signal: AbortSignal.timeout(55000),
   });
 
   let raw = '';
