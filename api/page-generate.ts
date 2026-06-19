@@ -384,11 +384,11 @@ JSON形式のみで返してください。前置きや説明は不要です：
       },
       body: JSON.stringify({
         model: 'claude-sonnet-4-6',
-        max_tokens: 4096,
+        max_tokens: 8192,
         system: systemPrompt,
         messages: [{ role: 'user', content: userPrompt }],
       }),
-      signal: AbortSignal.timeout(55000), // Vercel maxDuration=60s の範囲内
+      signal: AbortSignal.timeout(100000), // Vercel maxDuration=120s の範囲内
     });
 
     if (!resp.ok) {
@@ -1009,11 +1009,11 @@ JSONのみで返してください。`;
       },
       body: JSON.stringify({
         model: 'claude-sonnet-4-6',
-        max_tokens: 2048,
+        max_tokens: 4096,
         system: systemPrompt,
         messages: [{ role: 'user', content: userContent }],
       }),
-      signal: AbortSignal.timeout(50000),
+      signal: AbortSignal.timeout(80000),
     });
     if (!resp.ok) return null;
 

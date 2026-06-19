@@ -1,6 +1,6 @@
 ﻿import type { IncomingMessage, ServerResponse } from 'node:http';
 
-export const config = { maxDuration: 60 };
+export const config = { maxDuration: 120 };
 
 function readBody(req: IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -148,7 +148,7 @@ JSONで返答してください。`;
     },
     body: JSON.stringify({
       model: 'claude-sonnet-4-6',
-      max_tokens: 4096,
+      max_tokens: 8192,
       system: RECONCILE_SYSTEM_PROMPT,
       messages: [{ role: 'user', content: userContent }],
     }),

@@ -114,7 +114,7 @@ JSONで返答してください。`;
     },
     body: JSON.stringify({
       model: 'claude-sonnet-4-6',
-      max_tokens: 4000,
+      max_tokens: 8192,
       system: IMPLEMENT_SYSTEM_PROMPT,
       messages: [{ role: 'user', content: userContent }],
     }),
@@ -128,7 +128,7 @@ JSONで返答してください。`;
   };
   if (!resp.ok) throw new Error(data.error?.message ?? `Claude API error ${resp.status}`);
 
-  const MAX_TOKENS = 4000;
+  const MAX_TOKENS = 8192;
   const outputTokens = data.usage?.output_tokens ?? 0;
   const inputTokens  = data.usage?.input_tokens  ?? 0;
   const isTruncated  = outputTokens >= MAX_TOKENS;
