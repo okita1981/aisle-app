@@ -362,11 +362,11 @@ JSONで返答してください。`;
     },
     body: JSON.stringify({
       model: 'claude-sonnet-4-6',
-      max_tokens: 1500,
+      max_tokens: 3000,
       system: DESIGN_STEP2_SYSTEM_PROMPT,
       messages: [{ role: 'user', content: userContent }],
     }),
-    signal: AbortSignal.timeout(25000),
+    signal: AbortSignal.timeout(45000),
   });
   // bodyは一度しか読めないため text() で先読みしてから parse する
   let anthropicRaw = '';
@@ -385,7 +385,7 @@ JSONで返答してください。`;
   if (!resp.ok) throw new Error(data.error?.message ?? `Claude API error ${resp.status}`);
   const rawText = (data.content?.[0]?.text ?? '').trim();
   const usage = (data as unknown as { usage?: { input_tokens?: number; output_tokens?: number } }).usage;
-  const MAX_TOKENS_S2 = 1500;
+  const MAX_TOKENS_S2 = 3000;
   const outputTokensS2 = usage?.output_tokens ?? 0;
   const isTruncatedS2 = outputTokensS2 >= MAX_TOKENS_S2;
   console.log(`[design-step2] output_chars=${rawText.length} input_tokens=${usage?.input_tokens ?? 'n/a'} output_tokens=${outputTokensS2} max_tokens=${MAX_TOKENS_S2} truncated=${isTruncatedS2} (STEP4+validation only)`);
