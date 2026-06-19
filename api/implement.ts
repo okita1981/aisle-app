@@ -103,23 +103,30 @@ ${JSON.stringify(selectedItems, null, 2)}
 上記のSB-IDについて、出現率向上のための実装設計を行ってください。
 JSONで返答してください。`;
 
-  const signal = AbortSignal.timeout(55000);
+  const signal = AbortSignal.timeout(100000);
 
-  const resp = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
-      'content-type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 8192,
-      system: IMPLEMENT_SYSTEM_PROMPT,
-      messages: [{ role: 'user', content: userContent }],
-    }),
-    signal,
-  });
+  let resp: Response;
+  try {
+    resp = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-6',
+        max_tokens: 8192,
+        system: IMPLEMENT_SYSTEM_PROMPT,
+        messages: [{ role: 'user', content: userContent }],
+      }),
+      signal,
+    });
+  } catch (fetchErr) {
+    const errMsg = fetchErr instanceof Error ? fetchErr.message : String(fetchErr);
+    console.error(`[implement] fetch failed: ${errMsg}`);
+    throw new Error(`Anthropic APIへの接続に失敗しました: ${errMsg}`);
+  }
 
   const data = await resp.json() as {
     content?: Array<{ text: string }>;
