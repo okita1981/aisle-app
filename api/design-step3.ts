@@ -299,7 +299,7 @@ JSONで返答してください。`;
       },
       body: JSON.stringify({
         model: 'claude-sonnet-4-6',
-        max_tokens: 3500,
+        max_tokens: 8192,
         system: DESIGN_STEP3_SYSTEM_PROMPT,
         messages: [{ role: 'user', content: userContent }],
       }),
@@ -326,7 +326,7 @@ JSONで返答してください。`;
   }
   if (!resp.ok) throw new Error(data.error?.message ?? `Claude API error ${resp.status}`);
   const rawText = (data.content?.[0]?.text ?? '').trim();
-  const MAX_TOKENS_S3 = 3500;
+  const MAX_TOKENS_S3 = 8192;
   const outputTokensS3 = data.usage?.output_tokens ?? 0;
   const isTruncatedS3 = outputTokensS3 >= MAX_TOKENS_S3;
   console.log(`[design-step3] output_chars=${rawText.length} input_tokens=${data.usage?.input_tokens ?? 'n/a'} output_tokens=${outputTokensS3} max_tokens=${MAX_TOKENS_S3} truncated=${isTruncatedS3}`);
