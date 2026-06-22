@@ -60,12 +60,10 @@ export function PasswordGate({ children }: { children: ReactNode }) {
 
         {/* ロゴ */}
         <div className="flex items-center justify-center gap-3 mb-8">
-          <div className="w-11 h-11 rounded-xl bg-indigo-500 flex items-center justify-center text-white font-bold text-lg shadow-lg">
-            A
-          </div>
+          <img src="/favicon.png" alt="Aisle Studio" className="w-11 h-11 rounded-xl shadow-lg flex-shrink-0" />
           <div>
-            <div className="font-bold text-white text-xl leading-tight">Aisle</div>
-            <div className="text-slate-400 text-xs leading-tight">出現設計エンジン</div>
+            <div className="font-bold text-white text-xl leading-tight">Aisle Studio</div>
+            <div className="text-slate-400 text-xs leading-tight">AI出現を設計する</div>
           </div>
         </div>
 
