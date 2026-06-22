@@ -27,8 +27,8 @@ export function Sidebar() {
       <div className="px-4 py-4 border-b border-slate-700">
         <div className="flex items-center gap-2 min-w-0">
           <img
-            src="/logo_580_580.png"
-            alt="Aisle"
+            src="/favicon.png"
+            alt="Aisle Studio"
             className="w-8 h-8 rounded-md object-cover flex-shrink-0"
             onError={(e) => {
               const t = e.currentTarget;
@@ -44,7 +44,7 @@ export function Sidebar() {
             A
           </div>
           <div className="min-w-0">
-            <div className="font-bold text-sm leading-tight truncate">Aisle</div>
+            <div className="font-bold text-sm leading-tight truncate">Aisle Studio</div>
           </div>
         </div>
       </div>
