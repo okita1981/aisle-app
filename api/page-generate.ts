@@ -826,6 +826,41 @@ function getPromptSlug(promptTypeId: string): string {
   return PROMPT_TYPE_SLUGS[base] ?? promptTypeId.toLowerCase().replace(/[^a-z0-9]+/g, '-');
 }
 
+// ── Aisleページ：questionSlug 採番 ──────────────────────────────
+// 「既存件数+1」ではなく「既存slugの最大suffix+1」で採番する。
+// 削除や同時実行で件数とsuffixがズレても、過去に使われた番号と衝突しない。
+// 同一promptTypeSlug配下に何件Referenceがあっても、既存slug集合（existing + 今回のバッチ内で
+// 採番済みの分）と重複しないユニークなslugを返すまで候補をインクリメントし続ける。
+function nextQuestionSlug(
+  promptTypeSlug: string,
+  existingQIndex: QuestionPageIndexEntry[],
+  newQEntries: QuestionPageIndexEntry[],
+): string {
+  const suffixPattern = new RegExp(`^${promptTypeSlug}-(\\d+)$`);
+
+  let maxSuffix = 0;
+  for (const e of [...existingQIndex, ...newQEntries]) {
+    const m = e.questionSlug.match(suffixPattern);
+    if (m) {
+      const n = parseInt(m[1], 10);
+      if (n > maxSuffix) maxSuffix = n;
+    }
+  }
+
+  const usedSlugs = new Set([
+    ...existingQIndex.map(e => e.questionSlug),
+    ...newQEntries.map(e => e.questionSlug),
+  ]);
+
+  let candidate = maxSuffix + 1;
+  let questionSlug = `${promptTypeSlug}-${String(candidate).padStart(3, '0')}`;
+  while (usedSlugs.has(questionSlug)) {
+    candidate += 1;
+    questionSlug = `${promptTypeSlug}-${String(candidate).padStart(3, '0')}`;
+  }
+  return questionSlug;
+}
+
 // ── FAQ guidance per P-ID ─────────────────────────────────────
 const FAQ_GUIDANCE_MAP: Record<string, string> = {
   'P-01': '選定基準・候補の条件・比較軸・検討の進め方・注意点',
@@ -1480,6 +1515,16 @@ async function saveToRefBase(
       generatedAt: now,
     };
 
+    // 上書き検知: 既存Referenceがあり、promptTextが異なる場合は警告ログを出す（ブロックはしない）。
+    // questionSlugの採番衝突や意図しないupdateターゲット指定があった場合に早期発見できるようにする。
+    const existingRef = await kv.get<RefBaseReference>(`refbase:ref:${clientSlug}/${questionSlug}`);
+    if (existingRef && existingRef.promptText !== promptText) {
+      console.warn(
+        `[saveToRefBase] OVERWRITE WARNING: clientSlug=${clientSlug} questionSlug=${questionSlug} ` +
+        `existingPromptText="${existingRef.promptText.slice(0, 60)}" newPromptText="${promptText.slice(0, 60)}"`,
+      );
+    }
+
     // company は upsert（毎回上書きで最新状態を保つ）
     await kv.set(`refbase:company:${clientSlug}`, company);
     // reference は questionSlug 単位で上書き（add / update 共通）
@@ -1736,11 +1781,8 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
 
           const promptTypeSlug = getPromptSlug(baseId);
 
-          // 連番を付与（既存インデックス + 今回の新規追加分 を合算）
-          const existingCount = existingQIndex.filter(e => e.promptTypeSlug === promptTypeSlug).length;
-          const addedCount   = newQEntries.filter(e => e.promptTypeSlug === promptTypeSlug).length;
-          const seq = String(existingCount + addedCount + 1).padStart(3, '0');
-          const questionSlug = `${promptTypeSlug}-${seq}`;
+          // 連番を付与：既存slugの最大suffix+1。existingQIndex/newQEntries双方と非衝突を保証。
+          const questionSlug = nextQuestionSlug(promptTypeSlug, existingQIndex, newQEntries);
 
           const narrative = await callClaudeForChildPage(pid, companyName, productCategory, adoptedEvidence)
             ?? buildFallbackNarrative(pid, baseId, companyName, productCategory);
