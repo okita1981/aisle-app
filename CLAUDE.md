@@ -1,6 +1,6 @@
 ﻿# CLAUDE.md — Aisle aisle-app 実装ガイダンス
 
-最終更新: 2026-06-12
+最終更新: 2026-06-22
 本番URL: https://app.aisle-aio.ai
 リポジトリ: `C:\Users\kousu\OneDrive\Desktop\CLAUDE Aisle\aisle-app`
 
@@ -216,6 +216,23 @@ const filtered = index; // 現状は全件表示
 | L-04 | RefBase KV は Aisle KV 共有（専用KVへの分離未完了） | RefBase Phase3 |
 | L-05 | モニタリング機能なし（Emergence Scope連携予定） | Ver3以降 |
 | L-06 | refbase:index:all から削除時の同期なし | Ver3以降 |
+| L-07 | updateモードでpromptText不一致時のフォールバックマッチング（同P-IDの先頭perPIDを無条件採用）により、対象questionSlotの中身が意図しない別問いの内容にすり替わるリスクが残る（`callForChildPage`呼び出し前のpid選定ロジック、1788-1812行目） | 未着手 |
+| L-08 | `page-delete.ts`の`deleteFromIndex`がデフォルト`false`。呼び出し元が立て忘れるとコンテンツは削除されるがindexエントリだけ残る「幽霊エントリ」が発生しうる | 未着手 |
+
+## 16. questionSlug採番バグ修正（2026-06-22）
+
+**重大バグ修正済み：** 同一P-ID配下に複数Referenceを生成すると、後発のReferenceが先発を上書き・消失させるバグがあった（`recommendation-001`が実際にデータ消失した実例あり、復旧不可）。
+
+**根本原因：** questionSlugの連番採番が「既存件数+1」方式（`existingCount + addedCount + 1`）だったため、Reference削除後に件数が減ると、次回追加時に既存slugと同じ番号を再計算し、`kv.set`の無条件上書きでデータが消える構造だった。
+
+**修正内容：**
+- `nextQuestionSlug()`新規関数（825行目付近）：既存questionSlugから`{promptTypeSlug}-(\d+)`の最大suffixを抽出し+1で採番。`existingQIndex`と同一バッチ内`newQEntries`の両方に対して非衝突を保証するまで候補をインクリメント
+- `saveToRefBase()`：既存Referenceと異なる内容で上書きする場合、`[saveToRefBase] OVERWRITE WARNING`ログを出力（ブロックはしない、早期検知用）
+- 既存の壊れた`page-question-index:aisle`（`recommendation-002`重複）は`scripts/fix-question-index-dedup.mjs`で補正済み
+
+**動作確認済み：** Aisle Studio UIから実際にP-01を複数追加し、`recommendation-003`, `recommendation-004`のように正しく連番が振られることを確認。
+
+**残課題：** L-07（update時のフォールバックマッチング）・L-08（delete時の幽霊エントリ）は未修正のまま。
 
 ---
 
