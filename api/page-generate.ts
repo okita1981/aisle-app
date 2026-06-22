@@ -697,6 +697,8 @@ interface EvidenceItemInput {
   entityRole: string;
   value?: string;
   tags: string[];
+  sourceUrl?: string;
+  sourceType?: string;
 }
 
 // 推薦文・公開ページ向け type 固定優先度（design.ts と同一定義）
