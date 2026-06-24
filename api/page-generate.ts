@@ -699,6 +699,7 @@ interface EvidenceItemInput {
   tags: string[];
   sourceUrl?: string;
   sourceType?: string;
+  confidence?: 'high' | 'medium' | 'low';
   needsVerification?: boolean;
   verificationNote?: string;
   sourceVerified?: boolean;
@@ -711,6 +712,73 @@ export interface EvidenceWarning {
   needsVerificationCount: number;
   insufficientTypes: string[];
   message: string;
+}
+
+// ── Evidence Tier 分類 ────────────────────────────────────────────
+
+const T2_SOURCE_TYPES = new Set([
+  'media_mention', 'award', 'review_platform', 'external_db',
+]);
+
+const PID_REQUIRED_TYPES: Record<string, string[]> = {
+  'P-01': ['feature', 'case', 'availability'],
+  'P-02': ['comparison', 'feature', 'metric'],
+  'P-03': ['credential', 'metric', 'media'],
+  'P-04': ['method', 'case', 'feature'],
+  'P-05': ['media', 'credential', 'review'],
+  'P-06': ['case', 'client', 'metric'],
+};
+
+const EXTERNAL_REQUIRED_PIDS = new Set(['P-03', 'P-05']);
+const EXTERNAL_EVIDENCE_TYPES = ['media', 'credential', 'review'];
+
+function classifyEvidenceTier(item: EvidenceItemInput): 'T1' | 'T2' | 'T3' {
+  const isVerified = item.confidence === 'high' && item.needsVerification !== true;
+  if (!isVerified) return 'T3';
+  return item.sourceType && T2_SOURCE_TYPES.has(item.sourceType) ? 'T2' : 'T1';
+}
+
+function splitEvidenceByTier(items: EvidenceItemInput[]): {
+  verified: EvidenceItemInput[];
+  needsVerification: EvidenceItemInput[];
+} {
+  const verified: EvidenceItemInput[] = [];
+  const needsVerification: EvidenceItemInput[] = [];
+  for (const item of items) {
+    const tier = classifyEvidenceTier(item);
+    if (tier === 'T1' || tier === 'T2') verified.push(item);
+    else needsVerification.push(item);
+  }
+  return { verified, needsVerification };
+}
+
+function buildEvidenceWarning(
+  questionSlug: string,
+  promptTypeId: string,
+  allEvidence: EvidenceItemInput[],
+): EvidenceWarning {
+  const { verified, needsVerification } = splitEvidenceByTier(allEvidence);
+  const verifiedTypes = new Set(verified.map(e => e.type));
+  const t2Types = new Set(
+    verified.filter(e => classifyEvidenceTier(e) === 'T2').map(e => e.type),
+  );
+  const baseId = promptTypeId.split('-').slice(0, 2).join('-');
+  const requiredTypes = PID_REQUIRED_TYPES[baseId] ?? [];
+  const missingTypes = requiredTypes.filter(t => !verifiedTypes.has(t));
+  const missingExternal = EXTERNAL_REQUIRED_PIDS.has(baseId)
+    ? EXTERNAL_EVIDENCE_TYPES.filter(t => !t2Types.has(t))
+    : [];
+  const messages: string[] = [];
+  if (missingTypes.length > 0) messages.push(`不足type: ${missingTypes.join(', ')}`);
+  if (missingExternal.length > 0) messages.push(`外部Evidence不足（T2）: ${missingExternal.join(', ')}`);
+  return {
+    questionSlug,
+    promptTypeId: baseId,
+    missingTypes,
+    needsVerificationCount: needsVerification.length,
+    insufficientTypes: [...new Set([...missingTypes, ...missingExternal])],
+    message: messages.join(' / ') || '問題なし',
+  };
 }
 
 // 推薦文・公開ページ向け type 固定優先度（design.ts と同一定義）
@@ -1786,6 +1854,8 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
 
         const created: string[] = [];
         const newQEntries: QuestionPageIndexEntry[] = [];
+        const evidenceWarnings: EvidenceWarning[] = [];
+        const { verified: verifiedEvidence } = splitEvidenceByTier(adoptedEvidence);
 
         for (const pid of validPerPID) {
           const baseId = pid.promptTypeId.split('-').slice(0, 2).join('-');
@@ -1796,12 +1866,13 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
           // 連番を付与：既存slugの最大suffix+1。existingQIndex/newQEntries双方と非衝突を保証。
           const questionSlug = nextQuestionSlug(promptTypeSlug, existingQIndex, newQEntries);
 
-          const narrative = await callClaudeForChildPage(pid, companyName, productCategory, adoptedEvidence)
+          const narrative = await callClaudeForChildPage(pid, companyName, productCategory, verifiedEvidence)
             ?? buildFallbackNarrative(pid, baseId, companyName, productCategory);
 
           const childHtml = generateChildHtml(pid, now, narrative, clientSlug, companyName);
           await kv.set(`page:question:${clientSlug}/${questionSlug}`, childHtml);
-          await saveToRefBase(clientSlug, companyName, productCategory, questionSlug, pid.promptText, baseId, narrative, adoptedEvidence, now);
+          evidenceWarnings.push(buildEvidenceWarning(questionSlug, baseId, adoptedEvidence));
+          await saveToRefBase(clientSlug, companyName, productCategory, questionSlug, pid.promptText, baseId, narrative, verifiedEvidence, now);
 
           if (hasGarbledText(pid.promptText)) {
             console.error(`[garbled-detected] add: ${questionSlug} promptText contains garbled chars — skipping page-question-index entry`);
@@ -1825,13 +1896,21 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         // 親ページを問い単位インデックスで再生成（page:index:〜 に保存してキー競合を回避）
         await kv.set(`page:index:${clientSlug}`, generateQuestionParentHtml(updatedQIndex, now, clientSlug, companyName, productCategory));
 
+        const addEvidenceSummary = {
+          totalEvidence: adoptedEvidence.length,
+          verifiedEvidence: verifiedEvidence.length,
+          needsVerificationEvidence: adoptedEvidence.length - verifiedEvidence.length,
+        };
+        console.log(`[evidence-tier] add: total=${addEvidenceSummary.totalEvidence} verified=${addEvidenceSummary.verifiedEvidence} nv=${addEvidenceSummary.needsVerificationEvidence}`);
         res.setHeader('Content-Type', 'application/json');
-        res.end(JSON.stringify({ ok: true, parentUrl: `${HUB_BASE_URL}/${clientSlug}`, llmsTxtUrl: `${HUB_BASE_URL}/llms.txt`, created, skipped: [], updated: [], indexUpdated: newQEntries.length }));
+        res.end(JSON.stringify({ ok: true, parentUrl: `${HUB_BASE_URL}/${clientSlug}`, llmsTxtUrl: `${HUB_BASE_URL}/llms.txt`, created, skipped: [], updated: [], indexUpdated: newQEntries.length, evidenceWarnings, evidenceSummary: addEvidenceSummary }));
 
       } else {
         // ── update: questionSlug 単位で再生成 ────────────────────────
         const updated: string[] = [];
         const updatedQIndex = [...existingQIndex];
+        const updateEvidenceWarnings: EvidenceWarning[] = [];
+        const { verified: verifiedEvidenceU } = splitEvidenceByTier(adoptedEvidence);
 
         for (const questionSlug of targetQuestionSlugs) {
           const qEntry = existingQIndex.find(e => e.questionSlug === questionSlug);
@@ -1865,12 +1944,13 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
             } as AislePerPID;
           }
 
-          const narrative = await callClaudeForChildPage(pid, companyName, productCategory, adoptedEvidence)
+          const narrative = await callClaudeForChildPage(pid, companyName, productCategory, verifiedEvidenceU)
             ?? buildFallbackNarrative(pid, baseId, companyName, productCategory);
 
           const childHtml = generateChildHtml(pid, now, narrative, clientSlug, companyName);
           await kv.set(`page:question:${clientSlug}/${questionSlug}`, childHtml);
-          await saveToRefBase(clientSlug, companyName, productCategory, questionSlug, pid.promptText, baseId, narrative, adoptedEvidence, now);
+          updateEvidenceWarnings.push(buildEvidenceWarning(questionSlug, baseId, adoptedEvidence));
+          await saveToRefBase(clientSlug, companyName, productCategory, questionSlug, pid.promptText, baseId, narrative, verifiedEvidenceU, now);
 
           // インデックスの promptText と generatedAt を更新
           // 文字化けがある場合は promptText は更新せず generatedAt のみ更新する
@@ -1890,8 +1970,14 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         await kv.set(`page-question-index:${clientSlug}`, updatedQIndex);
         await kv.set(`page:index:${clientSlug}`, generateQuestionParentHtml(updatedQIndex, now, clientSlug, companyName, productCategory));
 
+        const updateEvidenceSummary = {
+          totalEvidence: adoptedEvidence.length,
+          verifiedEvidence: verifiedEvidenceU.length,
+          needsVerificationEvidence: adoptedEvidence.length - verifiedEvidenceU.length,
+        };
+        console.log(`[evidence-tier] update: total=${updateEvidenceSummary.totalEvidence} verified=${updateEvidenceSummary.verifiedEvidence} nv=${updateEvidenceSummary.needsVerificationEvidence}`);
         res.setHeader('Content-Type', 'application/json');
-        res.end(JSON.stringify({ ok: true, parentUrl: `${HUB_BASE_URL}/${clientSlug}`, llmsTxtUrl: `${HUB_BASE_URL}/llms.txt`, created: [], skipped: [], updated }));
+        res.end(JSON.stringify({ ok: true, parentUrl: `${HUB_BASE_URL}/${clientSlug}`, llmsTxtUrl: `${HUB_BASE_URL}/llms.txt`, created: [], skipped: [], updated, evidenceWarnings: updateEvidenceWarnings, evidenceSummary: updateEvidenceSummary }));
       }
 
       return;

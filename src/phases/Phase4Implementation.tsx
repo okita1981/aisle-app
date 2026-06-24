@@ -3,7 +3,7 @@ import { useAppStore } from '../store/useAppStore';
 import { Card, CardHeader, CardBody } from '../components/Card';
 import { Button } from '../components/Button';
 import { Badge } from '../components/Badge';
-import type { Phase4Result, ReconcileMatrixRow } from '../types';
+import type { Phase4Result, ReconcileMatrixRow, EvidenceWarning, EvidenceSummary } from '../types';
 import { filterIds } from '../utils/idFilter';
 
 // ─── 優先度カラー ──────────────────────────────────────────────
@@ -146,6 +146,98 @@ function SelectionCard({
         )}
       </CardBody>
     </Card>
+  );
+}
+
+// ─── Evidence Warning パネル ───────────────────────────────────
+
+const EXTERNAL_PIDS = new Set(['P-03', 'P-05']);
+
+function EvidenceWarningPanel({
+  warnings,
+  summary,
+}: {
+  warnings: EvidenceWarning[];
+  summary: EvidenceSummary;
+}) {
+  const hasIssues = warnings.some(w => w.insufficientTypes.length > 0);
+  const allMissingTypes = [...new Set(warnings.flatMap(w => w.missingTypes))];
+  const externalWarnings = warnings.filter(
+    w => EXTERNAL_PIDS.has(w.promptTypeId) && w.insufficientTypes.length > 0,
+  );
+
+  return (
+    <div className={`rounded-xl border p-4 space-y-3 text-sm ${hasIssues ? 'bg-amber-50 border-amber-200' : 'bg-green-50 border-green-200'}`}>
+      <div className="flex items-center gap-2 font-semibold">
+        <span>{hasIssues ? '⚠️' : '✅'}</span>
+        <span className={hasIssues ? 'text-amber-800' : 'text-green-800'}>
+          Evidence品質レポート
+        </span>
+      </div>
+
+      {/* サマリー数値 */}
+      <div className="flex gap-4 flex-wrap text-xs">
+        <span className="px-2 py-1 bg-green-100 text-green-800 rounded-full font-medium">
+          verified（RefBase保存）: {summary.verifiedEvidence}件
+        </span>
+        {summary.needsVerificationEvidence > 0 && (
+          <span className="px-2 py-1 bg-amber-100 text-amber-800 rounded-full font-medium">
+            要確認（未保存）: {summary.needsVerificationEvidence}件
+          </span>
+        )}
+        <span className="px-2 py-1 bg-slate-100 text-slate-600 rounded-full font-medium">
+          合計: {summary.totalEvidence}件
+        </span>
+      </div>
+
+      {/* 不足 type 一覧 */}
+      {allMissingTypes.length > 0 && (
+        <div>
+          <div className="text-xs font-semibold text-amber-700 mb-1">不足 Evidence type（T4）</div>
+          <div className="flex gap-1.5 flex-wrap">
+            {allMissingTypes.map(t => (
+              <span key={t} className="px-2 py-0.5 bg-amber-100 text-amber-800 border border-amber-200 rounded text-xs font-mono">
+                {t}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* P-03/P-05 外部 Evidence 不足警告 */}
+      {externalWarnings.length > 0 && (
+        <div className="bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+          <div className="text-xs font-semibold text-red-700 mb-1">
+            外部Evidence不足（P-03/P-05）
+          </div>
+          <p className="text-xs text-red-600 leading-relaxed">
+            {externalWarnings.map(w => w.promptTypeId).join('、')} は外部根拠（media / credential / review）が必要ですが、T2 Evidence（メディア掲載・受賞・外部評価）が登録されていません。AI引用耐性が低い状態です。
+          </p>
+        </div>
+      )}
+
+      {/* P-ID 別詳細 */}
+      {hasIssues && (
+        <details className="text-xs">
+          <summary className="cursor-pointer text-amber-700 hover:text-amber-900 font-medium select-none">
+            問い別詳細を表示
+          </summary>
+          <div className="mt-2 space-y-1.5">
+            {warnings.map(w => (
+              <div key={w.questionSlug} className={`px-3 py-2 rounded border ${w.insufficientTypes.length > 0 ? 'bg-amber-50 border-amber-200' : 'bg-white border-slate-100'}`}>
+                <span className="font-semibold text-slate-600">{w.promptTypeId}</span>
+                <span className="text-slate-400 mx-1">·</span>
+                <span className="font-mono text-slate-500">{w.questionSlug}</span>
+                <span className="text-slate-400 mx-1">—</span>
+                <span className={w.insufficientTypes.length > 0 ? 'text-amber-700' : 'text-green-700'}>
+                  {w.message}
+                </span>
+              </div>
+            ))}
+          </div>
+        </details>
+      )}
+    </div>
   );
 }
 
@@ -577,6 +669,8 @@ export function Phase4Implementation() {
       const json = await resp.json() as {
         ok: boolean; parentUrl?: string; llmsTxtUrl?: string;
         created?: string[]; skipped?: string[]; updated?: string[]; error?: string;
+        evidenceWarnings?: EvidenceWarning[];
+        evidenceSummary?: EvidenceSummary;
       };
       if (!json.ok) throw new Error(json.error ?? '問い別出現ページの生成に失敗しました');
 
@@ -586,6 +680,8 @@ export function Phase4Implementation() {
         created: json.created ?? [],
         skipped: json.skipped ?? [],
         updated: json.updated ?? [],
+        evidenceWarnings: json.evidenceWarnings,
+        evidenceSummary: json.evidenceSummary,
       });
       await fetchAisleIndex(clientSlugInput || undefined);
     } catch (e) {
@@ -1199,6 +1295,14 @@ export function Phase4Implementation() {
                   isDeletingSlug={isDeletingAisleSlug}
                   refbaseSlugs={refbaseSlugs}
                 />
+
+                {/* Evidence Warning パネル */}
+                {aisleResult?.evidenceWarnings && aisleResult.evidenceSummary && (
+                  <EvidenceWarningPanel
+                    warnings={aisleResult.evidenceWarnings}
+                    summary={aisleResult.evidenceSummary}
+                  />
+                )}
 
                 {/* 結果表示 */}
                 {aisleResult && (

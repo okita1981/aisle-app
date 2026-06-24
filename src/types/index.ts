@@ -573,6 +573,21 @@ export interface ImplementationReport {
 
 // ===================== Phase4 ページ生成結果 =====================
 
+export interface EvidenceWarning {
+  questionSlug: string;
+  promptTypeId: string;
+  missingTypes: string[];
+  needsVerificationCount: number;
+  insufficientTypes: string[];
+  message: string;
+}
+
+export interface EvidenceSummary {
+  totalEvidence: number;
+  verifiedEvidence: number;
+  needsVerificationEvidence: number;
+}
+
 /** 問い別出現ページ（Aisleページ）の生成結果 */
 export interface AislePageResult {
   parentUrl: string;
@@ -580,6 +595,8 @@ export interface AislePageResult {
   created: string[];
   skipped: string[];
   updated: string[];
+  evidenceWarnings?: EvidenceWarning[];
+  evidenceSummary?: EvidenceSummary;
 }
 
 /** 問い単位の公開ページインデックスエントリ */
