@@ -704,7 +704,8 @@ interface EvidenceItemInput {
   sourceVerified?: boolean;
 }
 
-interface EvidenceWarning {
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+interface _EvidenceWarning {
   questionSlug: string;
   promptTypeId: string;
   missingTypes: string[];
