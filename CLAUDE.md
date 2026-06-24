@@ -1,6 +1,6 @@
 ﻿# CLAUDE.md — Aisle aisle-app 実装ガイダンス
 
-最終更新: 2026-06-22
+最終更新: 2026-06-24
 本番URL: https://app.aisle-aio.ai
 リポジトリ: `C:\Users\kousu\OneDrive\Desktop\CLAUDE Aisle\aisle-app`
 
@@ -337,3 +337,43 @@ UX 要件：entityId 手入力確認 / 削除対象件数の事前表示。
 | E-01 | Aisle自社 Evidence に client / metric / credential / media がゼロ | 中 | P-01/P-04/P-05/P-06 のウェイト対象typeが機能しない。素材が生まれたら追加 |
 | E-02 | P-05 は出典素材不足のまま公開中 | 低 | 方針として許容済み。素材ができたら seed-evidence.mjs を再実行 |
 | E-03 | 他クライアント向け Evidence 投入フロー未整備 | 中 | seed-evidence.mjs は Aisle自社のみ。他クライアント追加時の運用手順なし |
+| E-04 | anchor-artworks の `evidence:anchor-artworks` KV が未投入 | 高 | page-generate実行時 adoptedEvidence=0 になる。公式サイトから evidence-extract → KV 投入フローを整備して実行すること |
+
+---
+
+## 17. Evidence Tier 設計（2026-06-24 実装）
+
+### Tier 定義
+
+| Tier | 名称 | 条件 | RefBase保存 |
+|------|------|------|------------|
+| **T1** | Official Verified | `confidence=high` かつ `needsVerification=false` かつ `sourceType` が T2 に非該当 | ✅ |
+| **T2** | Third Party Verified | `confidence=high` かつ `needsVerification=false` かつ `sourceType` が `media_mention/award/review_platform/external_db` | ✅ |
+| **T3** | Needs Verification | `confidence=high` かつ `needsVerification=true`、または `confidence=medium/low` | ❌ |
+| **T4** | Insufficient | P-ID必須type が verified pool に存在しない（`insufficientTypes` に列挙） | ❌（警告表示のみ） |
+
+### 実装箇所
+
+- **`api/evidence-extract.ts`**：ClaudeがneedsVerification/verificationNote/insufficientTypesを判定。`confidence≠high`は自動でneedsVerification=trueに設定。
+- **`api/page-generate.ts`**：`classifyEvidenceTier()` / `splitEvidenceByTier()` / `buildEvidenceWarning()` を追加。`saveToRefBase()` と `callClaudeForChildPage()` にはT1+T2（verified）のみ渡す。レスポンスに `evidenceSummary` / `evidenceWarnings` を追加。
+- **`src/phases/Phase4Implementation.tsx`**：ページ生成完了後に `EvidenceWarningPanel` を表示。verified件数・needsVerification件数・不足type・P-03/P-05外部Evidence不足警告を表示。
+
+### P-ID 必須 type（missingTypes算出基準）
+
+| P-ID | 必須 type |
+|------|----------|
+| P-01 | feature, case, availability |
+| P-02 | comparison, feature, metric |
+| P-03 | credential, metric, media |
+| P-04 | method, case, feature |
+| P-05 | media, credential, review |
+| P-06 | case, client, metric |
+
+P-03 / P-05 は追加で「T2 Evidence（外部根拠）の不足」も警告する。
+
+### 動作確認済み（2026-06-24）
+
+- Aisle / anchor-artworks で evidence-extract API の needsVerification・sourceVerified・insufficientTypes 返却を確認
+- page-generate で T3 Evidence が RefBase に保存されないことを確認（total=3, verified=1, RefBase sourceEvidence=1件）
+- evidenceSummary / evidenceWarnings がレスポンスに含まれることを確認
+- 既存 Reference 生成フロー（Aisle 5件）が破損しないことを確認
