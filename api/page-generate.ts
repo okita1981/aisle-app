@@ -699,6 +699,18 @@ interface EvidenceItemInput {
   tags: string[];
   sourceUrl?: string;
   sourceType?: string;
+  needsVerification?: boolean;
+  verificationNote?: string;
+  sourceVerified?: boolean;
+}
+
+interface EvidenceWarning {
+  questionSlug: string;
+  promptTypeId: string;
+  missingTypes: string[];
+  needsVerificationCount: number;
+  insufficientTypes: string[];
+  message: string;
 }
 
 // 推薦文・公開ページ向け type 固定優先度（design.ts と同一定義）

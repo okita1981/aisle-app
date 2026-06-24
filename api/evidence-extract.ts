@@ -41,6 +41,7 @@ const EVIDENCE_SYSTEM_PROMPT = `あなたはEvidence抽出エンジンです。
 - 推測・補完・架空の情報は絶対に生成しないこと
 - 見つからないカテゴリは空配列を返すのではなく、そのitemを生成しないこと
 - 1つの事実は1つのitemとして独立させること
+- 営業的表現・曖昧な形容詞（「高品質」「豊富な実績」等）のみのitemは生成しないこと
 
 【typeの定義と判断基準】
 - case: 具体的な制作・支援・開発・提供の実績。プロジェクト名や案件名があるもの
@@ -56,9 +57,17 @@ const EVIDENCE_SYSTEM_PROMPT = `あなたはEvidence抽出エンジンです。
 - other: 上記に当てはまらないが引用価値があると判断した根拠
 
 【confidenceの判断基準】
-- high: 固有名詞・数値・固有の事実名が明記されている
+- high: 固有名詞・数値・固有の事実名がテキスト中に明記されている（数値は「500本以上」等の具体的な記載がある場合のみ）
 - medium: 具体性はあるが一部曖昧な表現が含まれる
 - low: 抽象的または推測を含む
+
+【needsVerificationの判断基準】
+- true: テキストに明記はあるが、外部参照・照合が必要な数値・認定・受賞・メディア掲載など
+- false: テキスト上で完結しており追加確認不要な事実
+
+【insufficientTypesについて】
+テキストを調査した結果、以下のtypeの根拠が不足または見つからなかった場合は "insufficientTypes" 配列に追記してください。
+不足typeの例: credential（受賞・認証が見当たらない）、media（掲載実績が見当たらない）、metric（数値実績が見当たらない）、client（顧客名が見当たらない）
 
 【出力形式（JSONのみ、前置き・説明不要）】
 {
@@ -71,9 +80,12 @@ const EVIDENCE_SYSTEM_PROMPT = `あなたはEvidence抽出エンジンです。
       "entityRole": "ゲーム映像実績",
       "value": "2024",
       "tags": ["CG", "eスポーツ", "ゲーム映像", "MIXI"],
-      "confidence": "high"
+      "confidence": "high",
+      "needsVerification": false,
+      "verificationNote": ""
     }
-  ]
+  ],
+  "insufficientTypes": ["credential", "media"]
 }`;
 
 // ── JSONクリーニング ──────────────────────────────────────────────
@@ -95,10 +107,14 @@ async function extractWithClaude(
   rawText: string,
   companyName: string,
   sourceLabel: string,
-): Promise<Array<{
-  id: string; type: string; title: string; description: string;
-  entityRole: string; value?: string; tags: string[]; confidence?: string;
-}>> {
+): Promise<{
+  items: Array<{
+    id: string; type: string; title: string; description: string;
+    entityRole: string; value?: string; tags: string[]; confidence?: string;
+    needsVerification?: boolean; verificationNote?: string;
+  }>;
+  insufficientTypes: string[];
+}> {
   const apiKey = process.env.ANTHROPIC_API_KEY ?? '';
   if (!apiKey) throw new Error('ANTHROPIC_API_KEY が未設定です');
 
@@ -136,11 +152,17 @@ ${rawText.slice(0, MAX_INPUT_CHARS)}
 
   const rawText2 = (apiData.content?.[0]?.text ?? '').trim();
   const cleaned = cleanJson(rawText2);
-  const parsed = JSON.parse(cleaned) as { items?: unknown[] };
-  return (parsed.items ?? []) as Array<{
-    id: string; type: string; title: string; description: string;
-    entityRole: string; value?: string; tags: string[]; confidence?: string;
-  }>;
+  const parsed = JSON.parse(cleaned) as { items?: unknown[]; insufficientTypes?: unknown[] };
+  return {
+    items: (parsed.items ?? []) as Array<{
+      id: string; type: string; title: string; description: string;
+      entityRole: string; value?: string; tags: string[]; confidence?: string;
+      needsVerification?: boolean; verificationNote?: string;
+    }>,
+    insufficientTypes: Array.isArray(parsed.insufficientTypes)
+      ? (parsed.insufficientTypes as string[]).filter(t => typeof t === 'string')
+      : [],
+  };
 }
 
 // ── ハンドラ ─────────────────────────────────────────────────────
@@ -201,27 +223,36 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       }
     }
 
-    const rawItems = await extractWithClaude(textToExtract, companyName, sourceLabel);
+    const { items: rawItems, insufficientTypes } = await extractWithClaude(textToExtract, companyName, sourceLabel);
 
-    // idの重複・型の正規化・sourceUrl/sourceType付与
+    // idの重複・型の正規化・sourceUrl/sourceType付与・needsVerification/sourceVerified付与
     const VALID_TYPES = new Set(['case','client','feature','metric','credential','review','media','method','availability','comparison','other']);
-    const items = rawItems.map((item, i) => ({
-      id: item.id || `ev-${String(i + 1).padStart(3, '0')}`,
-      type: VALID_TYPES.has(item.type) ? item.type : 'other',
-      title: item.title || '',
-      description: item.description || '',
-      entityRole: item.entityRole || '',
-      ...(item.value !== undefined ? { value: item.value } : {}),
-      tags: Array.isArray(item.tags) ? item.tags : [],
-      sourceUrl: resolvedUrl || undefined,
-      sourceType: url ? 'official_site' as const : 'manual' as const,
-      confidence: (['high','medium','low'].includes(item.confidence ?? '') ? item.confidence : 'medium') as 'high' | 'medium' | 'low',
-      status: 'pending' as const,
-      sourceLabel,
-    }));
+    const items = rawItems.map((item, i) => {
+      const confidence = (['high','medium','low'].includes(item.confidence ?? '') ? item.confidence : 'medium') as 'high' | 'medium' | 'low';
+      // confidence が high 以外なら自動で needsVerification=true
+      const needsVerification = item.needsVerification === true || confidence !== 'high';
+      const sourceVerified = confidence === 'high' && !needsVerification;
+      return {
+        id: item.id || `ev-${String(i + 1).padStart(3, '0')}`,
+        type: VALID_TYPES.has(item.type) ? item.type : 'other',
+        title: item.title || '',
+        description: item.description || '',
+        entityRole: item.entityRole || '',
+        ...(item.value !== undefined ? { value: item.value } : {}),
+        tags: Array.isArray(item.tags) ? item.tags : [],
+        sourceUrl: resolvedUrl || undefined,
+        sourceType: url ? 'official_site' as const : 'manual' as const,
+        confidence,
+        needsVerification,
+        ...(item.verificationNote ? { verificationNote: item.verificationNote } : {}),
+        sourceVerified,
+        status: 'pending' as const,
+        sourceLabel,
+      };
+    });
 
-    console.log(`[evidence-extract] source=${sourceLabel} rawLength=${rawLength} items=${items.length}`);
-    res.end(JSON.stringify({ ok: true, items, rawLength }));
+    console.log(`[evidence-extract] source=${sourceLabel} rawLength=${rawLength} items=${items.length} insufficientTypes=${insufficientTypes.join(',') || 'none'}`);
+    res.end(JSON.stringify({ ok: true, items, insufficientTypes, rawLength }));
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     console.error('[evidence-extract] error:', message);
