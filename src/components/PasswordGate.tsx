@@ -3,8 +3,8 @@ import { useState, useEffect, type ReactNode } from 'react';
 const SESSION_KEY = 'aisle_authed';
 
 // ─── 認証が必要な管理系パス（完全一致 or プレフィックス一致） ────────────
-const PRIVATE_EXACT   = new Set(['/', '/dashboard', '/report', '/settings', '/admin', '/authoring', '/monitor']);
-const PRIVATE_PREFIXES = ['/dashboard/', '/report/', '/settings/', '/admin/', '/authoring/', '/monitor/'];
+const PRIVATE_EXACT   = new Set(['/', '/dashboard', '/report', '/settings', '/admin', '/authoring']);
+const PRIVATE_PREFIXES = ['/dashboard/', '/report/', '/settings/', '/admin/', '/authoring/'];
 
 /**
  * 認証が必要なパスかどうかを判定する。
