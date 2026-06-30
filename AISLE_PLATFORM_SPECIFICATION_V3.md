@@ -65,7 +65,7 @@ Monitor（観測へ戻る）
 |----------|----------|------|
 | **Studio** | 何を知っているか、品質は十分か | 知識の製造・検証・承認（Knowledge Authoring Platform） |
 | **RefBase** | AIにどう届けるか | 知識の公開・配信・構造化（AI Knowledge Infrastructure） |
-| **Monitor** | 出現したか、どう評価されたか | 観測・フィードバック（**未実装**。詳細はMonitor Specification Ver1.0参照） |
+| **Monitor** | 出現したか、どう評価されたか | 観測・フィードバック（**M1完了（2026-06-30）：Manual AI Contact / Crawl Log / Appearance Monitoring / Dashboard / RefBase読み取り連携をAPIとして実装済み。UI・Scheduled実行は未実装。詳細はMonitor Specification Ver1.0参照** ） |
 | **Scope** | 出現状況を可視化・スコアリング | レポーティング（**未着手**） |
 
 ---
