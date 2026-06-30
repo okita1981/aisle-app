@@ -37,6 +37,15 @@ function readBody(req: IncomingMessage): Promise<string> {
   });
 }
 
+// ── 認可（coverage-report.ts と同一方針） ───────────────────────────────────
+function isAuthorized(req: IncomingMessage): boolean {
+  const h = req.headers as Record<string, string | string[] | undefined>;
+  if (h['x-aisle-admin'] === '1') return true;
+  const em = process.env.EM_SHARED_SECRET;
+  if (em && h['authorization'] === `Bearer ${em}`) return true;
+  return false;
+}
+
 // ── sectionId → narrative フィールドの暫定マッピング（TD-004の暫定対応） ───
 // 対応が定義されていない sectionId は「確認不能」として warning のみ発行する。
 
@@ -158,6 +167,13 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
   res.setHeader('Access-Control-Allow-Origin', '*');
   if (req.method === 'OPTIONS') { res.statusCode = 204; res.end(); return; }
   if (req.method !== 'POST') { res.statusCode = 405; res.end(); return; }
+
+  if (!isAuthorized(req)) {
+    res.statusCode = 401;
+    res.setHeader('Content-Type', 'application/json');
+    res.end(JSON.stringify({ ok: false, error: 'Unauthorized' } satisfies DraftValidateResponse));
+    return;
+  }
 
   try {
     const body = JSON.parse(await readBody(req)) as DraftValidateRequest;

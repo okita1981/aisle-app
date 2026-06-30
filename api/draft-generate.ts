@@ -35,6 +35,15 @@ function readBody(req: IncomingMessage): Promise<string> {
 const SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const DEFAULT_MODEL = 'claude-sonnet-4-6';
 
+// ── 認可（coverage-report.ts と同一方針） ───────────────────────────────────
+function isAuthorized(req: IncomingMessage): boolean {
+  const h = req.headers as Record<string, string | string[] | undefined>;
+  if (h['x-aisle-admin'] === '1') return true;
+  const em = process.env.EM_SHARED_SECRET;
+  if (em && h['authorization'] === `Bearer ${em}`) return true;
+  return false;
+}
+
 // ── Evidence Tier 分類（page-generate.ts と同一ロジック） ──────────────────
 
 const T2_SOURCE_TYPES = new Set(['media_mention', 'award', 'review_platform', 'external_db']);
@@ -227,6 +236,13 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
   res.setHeader('Access-Control-Allow-Origin', '*');
   if (req.method === 'OPTIONS') { res.statusCode = 204; res.end(); return; }
   if (req.method !== 'POST') { res.statusCode = 405; res.end(); return; }
+
+  if (!isAuthorized(req)) {
+    res.statusCode = 401;
+    res.setHeader('Content-Type', 'application/json');
+    res.end(JSON.stringify({ ok: false, error: 'Unauthorized' } satisfies DraftGenerateResponse));
+    return;
+  }
 
   try {
     const body = JSON.parse(await readBody(req)) as DraftGenerateRequest;

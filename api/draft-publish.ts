@@ -47,6 +47,15 @@ const PROMPT_TYPE_SLUGS: Record<string, string> = {
   'P-06': 'why-recommended',
 };
 
+// ── 認可（coverage-report.ts と同一方針） ───────────────────────────────────
+function isAuthorized(req: IncomingMessage): boolean {
+  const h = req.headers as Record<string, string | string[] | undefined>;
+  if (h['x-aisle-admin'] === '1') return true;
+  const em = process.env.EM_SHARED_SECRET;
+  if (em && h['authorization'] === `Bearer ${em}`) return true;
+  return false;
+}
+
 function getPromptSlug(promptTypeId: string): string {
   const base = promptTypeId.split('-').slice(0, 2).join('-');
   return PROMPT_TYPE_SLUGS[base] ?? promptTypeId.toLowerCase().replace(/[^a-z0-9]+/g, '-');
@@ -161,6 +170,13 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
   res.setHeader('Access-Control-Allow-Origin', '*');
   if (req.method === 'OPTIONS') { res.statusCode = 204; res.end(); return; }
   if (req.method !== 'POST') { res.statusCode = 405; res.end(); return; }
+
+  if (!isAuthorized(req)) {
+    res.statusCode = 401;
+    res.setHeader('Content-Type', 'application/json');
+    res.end(JSON.stringify({ ok: false, error: 'Unauthorized' } satisfies DraftPublishResponse));
+    return;
+  }
 
   try {
     const body = JSON.parse(await readBody(req)) as DraftPublishRequest;

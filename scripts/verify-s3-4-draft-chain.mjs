@@ -64,10 +64,12 @@ function check(label, ok, detail = '') {
   }
 }
 
-async function postJson(path, body) {
+async function postJson(path, body, { skipAuth = false } = {}) {
+  const headers = { 'content-type': 'application/json' };
+  if (!skipAuth) headers['x-aisle-admin'] = '1';
   const resp = await fetch(`${BASE_URL}${path}`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers,
     body: JSON.stringify(body),
   });
   let json = null;
@@ -81,8 +83,15 @@ async function main() {
   console.log(`Test Entity: ${TEST_SLUG}`);
   console.log(`Target P-ID: ${TARGET_PROMPT_TYPE_ID}\n`);
 
+  // ── Step 0: 認証ガード確認（S3-5）─────────────────────────────────────────
+  console.log('--- Step 0: 認証なしで401になることを確認（S3-5 Auth Guard） ---');
+  for (const path of ['/api/qi-resolve', '/api/draft-generate', '/api/draft-validate', '/api/draft-publish']) {
+    const noAuthRes = await postJson(path, {}, { skipAuth: true });
+    check(`${path} 認証なし → HTTP 401`, noAuthRes.status === 401, `status=${noAuthRes.status}`);
+  }
+
   // ── Step 1: qi-resolve ──────────────────────────────────────────────────
-  console.log('--- Step 1: /api/qi-resolve ---');
+  console.log('\n--- Step 1: /api/qi-resolve ---');
   const qiRes = await postJson('/api/qi-resolve', {
     clientSlug: TEST_SLUG,
     companyName: TEST_COMPANY_NAME,
