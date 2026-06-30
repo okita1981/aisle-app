@@ -2041,4 +2041,152 @@ ReferenceにinstanceId / draftIdを持たせ、どの問い・どの生成から
 
 ---
 
+## 31. S4 Authoring Workbench UI 完了記録（2026-06-30）
+
+### 実装内容
+
+| ファイル | 内容 |
+|---------|------|
+| `src/types/authoring.ts` | フロント側の共有型（`api/_draft-types.ts`のミラー。後述の理由により`src/types/index.ts`に依存しない自己完結設計） |
+| `src/lib/authoringApi.ts` | 4 API共通fetchラッパー。`x-aisle-admin`ヘッダー付与・401を`AuthoringApiError`として判別 |
+| `src/components/AuthoringWorkbench.tsx` | Generate/Validate/Publish 3タブのメイン画面。`Phase4Implementation.tsx`とは完全独立 |
+| `src/components/Sidebar.tsx` / `src/App.tsx` | `/authoring`ルート追加（`/admin`と同パターン。最小差分） |
+| `vercel.json` | `/authoring`の明示的rewrite追加（汎用`/:slug`ルールに飲み込まれるバグを防止） |
+
+**S4スコープ**：既存EntityでGenerate→Validate→Publishの一連操作をUIから実行できること。Entity新規作成・Evidence投入・Relationship編集は対象外。
+
+### 重大インシデント：本番デプロイ失敗と原因究明（2026-06-30）
+
+S4初回push（`1045b76`）はVercelビルドが**失敗**（9秒でエラー終了）。ローカル`tsc -b`は成功していたため発覚が遅れた。
+
+**根本原因**：`src/types/authoring.ts`が`src/types/index.ts`の`CoverageType`/`ResponseSchema`をimportしていたが、**`index.ts`自体が当時未コミット**（Sprint 1/1.5 Architecture Foundation由来）だった。ローカル作業ディレクトリには未コミットファイルが残っていたため`tsc -b`が誤って成功し、Vercelのクリーンclone環境では該当exportが存在せず`TS2305`でビルドが落ちた。
+
+**調査手法**：`npx vercel ls` / `npx vercel inspect --logs`でVercel CLIから直接ビルドログを取得し、エラーメッセージを特定。さらにcommitted treeのみをscratchpadへ`git clone`し、`npm install && npm run build`をVercelと同条件で再現・検証してから修正を確定させた（以後の全コミットでこの「クリーンclone事前検証」を踏襲）。
+
+**修正**：`authoring.ts`を`index.ts`に依存しない自己完結型に変更（`CoverageType`/`ResponseSchema`/`AuthoringEvidenceItem`をファイル内に複製。`api/_draft-types.ts`と同じ「tsconfig境界をまたぐ複製」方針を踏襲）。コミット`6b57788`で解消・本番反映確認済み。
+
+### 副次的発見：Coverage Panel / Evidence Manager も本番未デプロイだった
+
+調査の過程で、`src/types/index.ts`に依存する`CoveragePanel.tsx` / `EvidenceManager.tsx`（Sprint 3.5B/3.5C実装）も**一度もコミットされておらず、本番に存在しなかった**ことが判明。Section 32で棚卸し・対応済み。
+
+### 検証結果（S4・修正後）
+
+| 項目 | 結果 |
+|------|------|
+| クリーンclone環境でのbuild | ✅（Vercel同条件で事前検証） |
+| `/authoring`本番アクセス | ✅ HTTP 200 |
+| 既存Entityでの qi-resolve→draft-generate→draft-validate→draft-publish | ✅ APIチェーン27/27 PASS（テストEntityで実施・削除済み） |
+| 既存Phase0〜5 | ✅ 影響なし |
+| `page-generate.ts` | ✅ 変更なし |
+
+### コミット
+
+```
+1045b76  feat: add Authoring Workbench UI (S4)                       ← ビルド失敗
+6b57788  fix: make src/types/authoring.ts self-contained             ← 修正・デプロイ成功
+```
+
+---
+
+## 32. Coverage Panel / Evidence Manager 未デプロイ積み残し 棚卸し・対応記録（2026-06-30）
+
+### 棚卸し結果サマリー
+
+S4のビルド障害調査の過程で、`src/types/index.ts`の未コミット差分（110行・純粋追加のみ）に、`CoveragePanel.tsx` / `EvidenceManager.tsx`（Sprint 3.5B/3.5C実装）を含む複数の未コミットファイルが依存していることが判明。本番に一度もデプロイされていなかった。
+
+| 確認observation | 結果 |
+|------|------|
+| `index.ts`差分の性質 | 純粋追加（`RegistryEnvelope` / `CoverageType` / `SourceClass` / `ResponseSchema` / `QuestionTemplate` / `QuestionInstance` + `EvidenceItem`への後方互換フィールド）。既存フィールド変更なし |
+| 設計上の必要性 | 必要。Architecture v1.0 / Knowledge Object Model v1.0の中核概念と完全整合 |
+| Coverage Panel/Evidence Managerの配置 | S2.5で「将来AdminPageから独立させ、Authoring JourneyのEvidenceステップへ移設」と設計済み。現状はAdminPageタブのまま。**意図的な先送りであり矛盾ではない** |
+| 孤立ファイル | `src/lib/coverageEngine.ts` / `src/lib/questionResolver.ts` / `api/qi-get.ts` の3ファイルはフロントのどこからも参照されていない（API側はインライン実装が正本のため、src/lib側は未配線のまま） |
+
+### 対応（案A採用）
+
+**コミット対象（6ファイルのみ）**：
+```
+src/types/index.ts
+src/components/AdminPage.tsx
+src/components/CoveragePanel.tsx
+src/components/EvidenceManager.tsx
+api/coverage-report.ts
+api/evidence-manager.ts
+```
+
+**除外（Parking Lotへ）**：`src/lib/coverageEngine.ts` / `src/lib/questionResolver.ts` / `api/qi-get.ts`。実行経路が不明な孤立ファイルのため、今回はコミットせず技術的負債として記録（PL-008、後述）。
+
+### 検証結果
+
+| 項目 | 結果 |
+|------|------|
+| クリーンclone環境でのbuild | ✅（コミット前にVercel同条件で事前検証） |
+| Vercelデプロイ（`1f860c3`） | ✅ Ready（`npx vercel ls`で直接確認） |
+| `/admin`アクセス | ✅ HTTP 200 |
+| 本番バンドルに"Coverage Panel"/"Evidence Manager"文字列 | ✅ 各1件確認 |
+| `coverage-report` / `evidence-manager` 認証なし | ✅ 401 |
+| `coverage-report` / `evidence-manager` 認証あり（`x-aisle-admin: 1`） | ✅ 200 |
+| 既存`/`・`/authoring`・S3-4 APIチェーン | ✅ 影響なし（27/27 PASS） |
+
+### コミット
+
+```
+1f860c3  feat: deploy Coverage Panel / Evidence Manager (Sprint 3.5B/3.5C catch-up)
+```
+
+### Parking Lot追加
+
+| ID | 内容 | 追加日 |
+|----|------|--------|
+| PL-008 | `src/lib/coverageEngine.ts` / `src/lib/questionResolver.ts` / `api/qi-get.ts` の扱い未決定（コミットして将来配線するか、削除するか）。API側のインライン実装と重複しており、src/lib側を使う設計意図があったかどうかを次回確認の上で判断する | 2026-06-30 |
+| PL-009 | Coverage Panel / Evidence ManagerをAdminPageから独立させ、Authoring WorkbenchのEvidenceステップへ統合する（S2.5設計の実行）。S4スコープ外として先送り済み | 2026-06-30 |
+
+---
+
+## 33. 運用ルール — Sprint完了時の必須手順（2026-06-30 確定）
+
+> **このルールは今後の全Sprintに適用する。S4でのビルド失敗（未コミット依存に気づかずpushし、本番が壊れた状態を見逃しかけた）を踏まえて制定する。**
+
+実装作業が完了し、ユーザーが次のSprintへ進む許可を出す前に、必ず以下を順番に実施する。
+
+```
+1. git status 確認
+   → 変更ファイルの全体像を把握する（意図したファイル以外が紛れていないか）
+
+2. 変更ファイルのスコープ確認
+   → 今回のSprintで触ってよいファイルだけが対象になっているか
+   → 他セッション由来の未コミット差分（混入リスク）がないか確認する
+
+3. commit対象の明示
+   → どのファイルをコミットするか・しないかをユーザーに明示してから実行する
+   → 含めないファイルがある場合は理由を記録する
+
+4. commit
+
+5. push
+
+6. 本番デプロイ確認
+   → curlでの間接確認だけに頼らない。ビルドが失敗していても旧バンドルが
+     残ったまま200を返すため、curlポーリングだけでは検知できない
+   → `npx vercel ls` / `npx vercel inspect --logs` でビルドステータスを
+     直接確認する（Ready / Error を実際に見る）
+   → Errorの場合はログを取得し、原因を特定してから再修正・再pushする
+
+7. 本番動作確認
+   → 対象機能が実際に動作することを本番URLで確認する
+   → 認証が絡む場合は「認証なし→401」「認証あり→200」の両方を確認する
+   → 既存の壊れていないことの確認（回帰確認）も毎回行う
+
+8. MASTER_ROADMAP更新
+   → 実施内容・検証結果・コミットハッシュを記録する
+   → 新たに見つかった技術的負債・Parking Lot項目があれば追記する
+```
+
+**教訓**：ローカルの`tsc -b`成功は、未コミットファイルが作業ディレクトリに残っている場合に誤った安心感を与える。**コミット前にクリーンcloneでのビルド検証を行うことが望ましい**（scratchpad等へ`git clone`して`npm install && npm run build`を実行する）。これは特に「他ファイルへの新規依存を追加した」変更で重要になる。
+
+### 次のアクション
+
+→ Phase 2完了判定、またはS5以降の計画策定へ進む。
+
+---
+
 *このドキュメントは「実装の記録」ではなく「現在地の地図」。実装の変更はコードを変えること。このドキュメントは Sprint が進むたびに更新する。*
