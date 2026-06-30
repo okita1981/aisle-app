@@ -2277,4 +2277,43 @@ S-03/S-04/S-05・Could群はPhase 2完了のブロッカーにしない。Phase 
 
 ---
 
+## 36. 未追跡ドキュメント4件 棚卸し・コミット記録（2026-06-30）
+
+Phase 2完了前の残タスク②。2026-06-29（S0着手前日）に作成されたまま一度もコミットされていなかった4ファイルを棚卸しし、全件コミット対象と判定した。
+
+### 棚卸し結果
+
+| ファイル | 内容 | Phase 2完了判定への影響 | 判定 |
+|---------|------|----------------------|------|
+| `CHANGELOG.md` | Ver1.5〜3.3（2026-06-11付近）の実装変更履歴 | なし。CLAUDE.md Section 16〜18に同内容がより詳細に記載済み | コミット（価値は低いが実害なし） |
+| `COVERAGE_POLICY_V1.md` | CoverageType判定基準の完全版（境界ケース・誤付与パターン・Unknown Entity Test 3ケース・Entity別推奨対応）。CLAUDE.md Section 29は本ファイルの要約 | なし | コミット（**Evidence Classification Policy v1.0の原本**。Evidence Manager運用の判断基準として今後も使用） |
+| `STUDIO_UX_SEPARATION_REPORT.md` | Diagnosis Mode / Knowledge Design Mode分離設計。Coverage Panel/Evidence Manager/Relationship Manager/Quality Audit/Publishing Statusの実装根拠 | なし（提案のP0/P1項目はS0〜S5で実現済み） | コミット（実装の設計根拠として保存） |
+| `UI_UX_RECONCILIATION_REPORT.md` | Architecture概念とStudio UIのギャップ総棚卸し。S0棚卸しの先行版。K-ID/M-ID/C-ID/A-ID/E-IDの維持・廃止判定を含む | なし（P0-1〜P0-4はS0〜S5で解消済み） | コミット（ID体系整理の参照資料として保存） |
+
+**結論**：4ファイルとも新たなMust級ブロッカーは含まない。Phase 2完了判定は変わらず「M-05完了・残タスク②完了・残タスク③（PL-008判断）待ち」。
+
+### Parking Lot追加
+
+| ID | 内容 | 出典 |
+|----|------|------|
+| PL-010 | Sidebar Mode Separation（Diagnosis Mode / Knowledge Design Mode / Admin の3セクション分け）。`STUDIO_UX_SEPARATION_REPORT.md`が提案。現在は`/authoring`独立ルート＋`/admin`タブという別方針で実装済みのため、再設計するかは要判断。PL-009（Coverage/Evidence/RelationshipのAuthoring Workbench統合）と統合して検討する | `STUDIO_UX_SEPARATION_REPORT.md` |
+| PL-011 | A-ID廃止検討。P-IDとの重複が高いため、Phase 1からの段階的削除を検討する | `UI_UX_RECONCILIATION_REPORT.md` Section 4-B |
+| PL-012 | K-ID/M-ID/C-ID/E-IDはStudio内部診断用として維持する方針を正式採用。Coverage/Relationshipでは完全代替できない診断次元（意味競合・構文分断・量的優位等）が残るため | `UI_UX_RECONCILIATION_REPORT.md` Section 4-B |
+
+### Evidence Classification Policy v1.0の原本について
+
+CLAUDE.md Section 29「Evidence Classification Policy v1.0」は要約版であり、**完全版は`COVERAGE_POLICY_V1.md`** にある。境界ケース・誤付与パターン一覧・Unknown Entity Test（3ケース）・Entity別推奨対応（chatgpt/uber）・sourceClass相関分析は完全版にのみ記載されている。Evidence Managerでの分類判断に迷った場合は`COVERAGE_POLICY_V1.md`を参照すること。
+
+### コミット
+
+```
+（次コミットで記録）
+```
+
+### 次のアクション
+
+→ Phase 2完了前の残タスク③（PL-008 孤立3ファイルの扱い判断）へ進む。
+
+---
+
 *このドキュメントは「実装の記録」ではなく「現在地の地図」。実装の変更はコードを変えること。このドキュメントは Sprint が進むたびに更新する。*
