@@ -2189,4 +2189,92 @@ api/evidence-manager.ts
 
 ---
 
+## 34. Phase 2完了判定レビュー（2026-06-30）
+
+S0〜S4・Coverage/Evidence本番反映を踏まえて完了判定を実施。結論：**Must未消化（M-05 Relationship Editor UI）が残るため、この時点では正式完了ではなく「ほぼ完了」と判定。**
+
+### 観点別状況
+
+| 観点 | 状態 |
+|------|------|
+| S0 Product Audit | ✅ 完了（棚卸し誤りは事後訂正済み） |
+| S1 Product Definition | ✅ 完了 |
+| Knowledge Object Model | ✅ 完了（実装直前にDraft/ValidatedDraft/Reference分離の修正あり） |
+| S2 IA/UX・S2.5 Screen Flow | ✅ 完了 |
+| S3 Authoring Engine API | ✅ 完了（qi-resolve/draft-generate/draft-validate/draft-publish + 認証ガード） |
+| S4 Authoring Workbench UI | ✅ 完了（初回ビルド失敗から復旧） |
+| Coverage Panel/Evidence Manager本番反映 | ✅ 完了（Section 32） |
+| Must（M-01〜M-05） | M-01〜M-04 ✅ / **M-05 未着手** |
+
+### 完了前の残タスク（優先順位確定）
+
+1. M-05 Relationship Editor UI
+2. 未追跡ドキュメント4件（`CHANGELOG.md` / `COVERAGE_POLICY_V1.md` / `STUDIO_UX_SEPARATION_REPORT.md` / `UI_UX_RECONCILIATION_REPORT.md`）の内容確認
+3. PL-008（孤立3ファイルの扱い）判断
+
+S-03/S-04/S-05・Could群はPhase 2完了のブロッカーにしない。Phase 3（Aisle Monitor）は上記3点の処理後に着手判断する。
+
+---
+
+## 35. M-05 Relationship Editor UI 完了記録（2026-06-30）
+
+### 設計方針（確定）
+
+| 方針 | 内容 |
+|------|------|
+| 対象relationshipType | `parentEntity` / `productOf` / `competitorOf` / `alternativeTo` の4種のみ（RefBase側が表示・JSON-LD化済みの種類に限定） |
+| 対象外 | `memberOfCluster`（primaryCluster/secondaryClustersとの二重管理回避）、R-01〜R-22未実装17種、Entity Workspace統合、RefBase側表示ロジック変更 |
+| direction | relationshipType選択時に自動決定（ユーザーに選択させない誤入力防止） |
+| 削除 | 物理削除ではなく`status: 'DEPRECATED'`化 |
+| relationshipId採番 | Write直前にRegistryを再取得して最大値を再確認してから採番（draft-publishのquestionSlug確定と同パターン。同時実行対策） |
+| 配置 | AdminPageへ新規タブとして追加（Coverage Panel/Evidence Managerと同パターン。Entity Workspaceへの統合は将来タスク） |
+
+### 実装内容
+
+| ファイル | 内容 |
+|---------|------|
+| `api/relationship-manager.ts` | GET（entity別取得）+ POST（create/update/delete）。`isAuthorized()`ガード。type allowlist・自己参照拒否・存在しないEntity拒否の3ガード |
+| `src/components/RelationshipEditor.tsx` | 読み込み・新規登録・DEPRECATED化のUI |
+| `src/components/AdminPage.tsx` | 「Relationship Editor」タブ追加（最小差分） |
+
+### 検証結果（本番）
+
+| 項目 | 結果 |
+|------|------|
+| クリーンclone環境でのbuild | ✅（コミット前に実施） |
+| Vercelデプロイ（`1bfd156`） | ✅ Ready（`npx vercel ls`で確認） |
+| 認証なし→401（GET/POST） | ✅ |
+| 認証あり→GET正常応答 | ✅ |
+| create正常系 | ✅（`REL-057`採番。既存最大`REL-056`+1で正しく動作） |
+| update（confidence変更） | ✅ |
+| delete | ✅ 物理削除ではなく`status: 'DEPRECATED'`化を確認（GET再取得でも残存） |
+| `memberOfCluster`作成拒否 | ✅ |
+| 未対応type（`foundedBy`）拒否 | ✅ |
+| 自己参照拒否 | ✅ |
+| 存在しないEntity拒否 | ✅ |
+| AdminPageにタブ表示 | ✅ 本番バンドルに"Relationship Editor"文字列確認 |
+| 既存`/`・`/admin`・`/authoring` | ✅ 影響なし |
+| Coverage/Evidence API | ✅ 影響なし |
+| S3-4 APIチェーン | ✅ 27/27 PASS継続 |
+
+### インシデント：curl経由の文字化け（API側の問題ではない）
+
+検証中、Windows git-bashから`curl -d '...'`でJapanese文字列を直接渡すと文字化けする事象が発生（`REL-057`のdescriptionが化けて保存された）。UTF-8ファイル経由で同じリクエストを送ると正常に保存されることを確認し、**シェル側の引数エンコード問題であり`api/relationship-manager.ts`自体には問題がないことを切り分け済み**。化けたテストレコードは`DEPRECATED`化して後始末済み。今後同様の検証では`--data-binary @file.json`（UTF-8ファイル）を使うこと。
+
+### テストデータ後始末
+
+`aisle-test-rel-a` / `aisle-test-rel-b`（Entity）・`REL-057`/`REL-058`（Relationship、DEPRECATED化）・`test-s34-draftchain`（S3-4テストEntity再利用分）をすべて削除・後始末済み。
+
+### コミット
+
+```
+1bfd156  feat: add Relationship Editor UI (S5 / M-05)
+```
+
+### 次のアクション
+
+→ Phase 2完了前の残タスク②（未追跡ドキュメント4件の内容確認）へ進む。
+
+---
+
 *このドキュメントは「実装の記録」ではなく「現在地の地図」。実装の変更はコードを変えること。このドキュメントは Sprint が進むたびに更新する。*
