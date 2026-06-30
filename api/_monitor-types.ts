@@ -54,6 +54,13 @@ export interface ContactItem {
   httpStatus?: number;
   success: boolean;
   errorMessage?: string;
+  /**
+   * true = 実際にAI Provider APIへ接触したのではなく、
+   * targetUrlの到達性チェックで代替した「模擬Contact」であることを示す。
+   * M1-2時点ではProvider APIとの実接触が未検証のため、全件 simulated: true になる。
+   * 実Provider接続が実装され次第、該当Providerのみ false へ切り替える。
+   */
+  simulated: boolean;
 }
 
 // ── Appearance Monitoring（M1-3以降で実装） ───────────────────────────────────
@@ -95,6 +102,33 @@ export interface CrawlLogEntry {
    * 「このCrawlがこのContactによって発生した」と断定する causedBy フィールドは作らない。
    */
   relatedContactRuns?: Array<{ runId: string; timeDeltaMinutes: number }>;
+}
+
+// ── /api/monitor-contact request/response（M1-2） ────────────────────────────
+
+export interface MonitorContactRequest {
+  entityId: string;
+  /** 指定があれば該当Referenceのpage Urlを対象にする。省略時はEntityハブURLを対象にする。 */
+  referenceId?: string;
+  /** M1-2はProvider1件のみ受け付ける（複数指定は400で拒否）。 */
+  providers: MonitorProviderId[];
+}
+
+export interface MonitorContactPostResponse {
+  ok: boolean;
+  run?: ContactRun;
+  items?: ContactItem[];
+  error?: string;
+}
+
+export interface MonitorContactGetResponse {
+  ok: boolean;
+  /** ?runId= 指定時 */
+  run?: ContactRun;
+  items?: ContactItem[];
+  /** 一覧取得時 */
+  runs?: ContactRun[];
+  error?: string;
 }
 
 // ── Entity一覧（RefBase読み取り連携・M1-1） ───────────────────────────────────
