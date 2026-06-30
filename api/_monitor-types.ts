@@ -85,6 +85,37 @@ export interface MonitoringItem {
   citationFound: boolean;
   rawResponseSnippet?: string;
   checkedAt: string;
+  /**
+   * true = 実Provider APIを呼ばず模擬応答で判定したことを示す。
+   * ContactItem.simulated と同じ思想。PERPLEXITY_API_KEY 等が未設定の場合は
+   * 常に true になる。意図的にContact結果とは独立したフィールドであり、
+   * ContactRun/ContactItem への参照は一切持たない（因果断定の禁止）。
+   */
+  simulated: boolean;
+}
+
+// ── /api/monitor-appearance request/response（M1-3） ─────────────────────────
+
+export interface MonitorAppearanceRequest {
+  entityId: string;
+  questionText: string;
+  /** M1-3は'perplexity'のみ受け付ける（複数指定は400で拒否）。 */
+  providers: MonitorProviderId[];
+}
+
+export interface MonitorAppearancePostResponse {
+  ok: boolean;
+  run?: MonitoringRun;
+  items?: MonitoringItem[];
+  error?: string;
+}
+
+export interface MonitorAppearanceGetResponse {
+  ok: boolean;
+  run?: MonitoringRun;
+  items?: MonitoringItem[];
+  runs?: MonitoringRun[];
+  error?: string;
 }
 
 // ── Crawl Log（M1-4以降で実装） ───────────────────────────────────────────────
