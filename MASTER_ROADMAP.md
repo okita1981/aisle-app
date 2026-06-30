@@ -2448,4 +2448,62 @@ Markdown版（`AISLE_PLATFORM_SPECIFICATION_V3.md` / `REFBASE_SPECIFICATION_V1.m
 
 ---
 
+## 41. Phase 3 — Aisle Monitor M1 進捗記録（2026-06-30）
+
+Monitor Product Definition Review（4機能の役割整理・AI Contact/Monitoring分離・Scheduled Contact拡張性を前提としたMVPスコープ確定）を経て、M1スプリントを開始。
+
+### M1スコープ確定
+
+```
+Must: Manual AI Contact / Crawl Log / Appearance Monitoring（手動）/ Dashboard最小版 / RefBase読み取り連携
+Should: Provider別フィルタ / Entity別フィルタ / Crawl LogとContact Runの時間相関表示
+Could: Scheduled Contact非活性UI / rawResponseSnippet表示
+Parking Lot: Scheduled AI Contact本実装 / Schedule Config型実装 / Monitor→Studioフィードバック / Push型即時検知 / Aisle Scope
+```
+
+Schedule Configは設計書・仕様書には残すが、コード（型定義含む）としてはM1スコープに含めない（PL-008の教訓：使われないコードを残さない）。
+
+### M1-1〜M1-4 完了記録
+
+| Step | 内容 | KV | コミット |
+|------|------|-----|---------|
+| M1-1 | 共通型定義・Provider定義・`GET /api/monitor-entities`（RefBase読み取り連携）・`GET /api/monitor-dashboard`（空データ） | なし（読み取りのみ） | `a79f85f` |
+| M1-2 | `POST/GET /api/monitor-contact`（Manual AI Contact。perplexityのみ・simulated実行） | `monitor:contact:run:*` / `monitor:contact:item:*` / `monitor:contact:runs:index` | `4d528ec` |
+| M1-3 | `POST/GET /api/monitor-appearance`（Appearance Monitoring手動トリガー。PERPLEXITY_API_KEY未設定時はsimulated・appeared/citationFound強制false） | `monitor:appearance:run:*` / `monitor:appearance:item:*` / `monitor:appearance:runs:index` | `1bec3cf` |
+| M1-4 | `POST /api/monitor-crawl-ingest`（RefBase→Monitor受信。`MONITOR_INGEST_SECRET`認証）・`GET /api/monitor-crawl-log`（一覧・`relatedContactRuns`時間相関） | `monitor:crawl:log:*` / `monitor:crawl:logs:index` | `230ee02` |
+
+### API命名規則（確定）
+
+設計時は`/api/monitor/entities`のような階層パスだったが、実装は既存Vercel Functionsの慣例（フラット命名・vercel.json変更を増やさない）に統一：
+
+```
+/api/monitor-entities
+/api/monitor-dashboard
+/api/monitor-contact
+/api/monitor-appearance
+/api/monitor-crawl-ingest
+/api/monitor-crawl-log
+```
+
+### 認証方式（確定）
+
+| 連携 | 方式 |
+|------|------|
+| ブラウザUI → Monitor管理API | `x-aisle-admin: 1`（`isAuthorized()`） |
+| RefBase → Monitor（Crawl Log ingest） | `Authorization: Bearer {MONITOR_INGEST_SECRET}`（Vercel本番環境変数に設定済み。`EM_SHARED_SECRET`とは分離管理） |
+
+### 因果断定の禁止（全Stepで徹底）
+
+ContactRun/ContactItem・MonitoringRun/MonitoringItem・CrawlLogEntryのいずれも、他のRunへの`causedBy`的な参照を持たない。`CrawlLogEntry.relatedContactRuns`のみ「同一entityId・時間窓120分以内」のco-occurrenceとして`{runId, timeDeltaMinutes}`を提示し、因果は一切主張しない。
+
+### 検証方針
+
+各Step実装後、クリーンclone環境でのビルド検証 → コミット範囲確認 → push → `npx vercel ls`/`vercel inspect --logs`でのビルド成否直接確認 → 本番での正常系・失敗系・既存機能無影響確認、を徹底（S4インシデントの教訓を全Stepで継続適用）。M1-1〜M1-4全Stepでこの手順を実施し、既存Studio/Authoring/Admin・Authoring Engine APIチェーン（27/27）への影響ゼロを確認済み。
+
+### 次のアクション
+
+→ M1-5（Dashboard本格集計）またはUI実装へ進む。
+
+---
+
 *このドキュメントは「実装の記録」ではなく「現在地の地図」。実装の変更はコードを変えること。このドキュメントは Sprint が進むたびに更新する。*

@@ -51,7 +51,16 @@ AI Contact（AIへの問い合わせ機構）・Crawl Log（巡回記録）・Di
 
 ## 4. API
 
-実装なし。Monitor用のVercel Functions・エンドポイントは1件も存在しない。
+M1実装が進行中（2026-06-30〜）。詳細はMASTER_ROADMAPのM1各ステップ完了記録を参照。本セクションはM1完了時に全面更新する。
+
+### 認証方式（確定・標準ルール）
+
+| 連携 | 方式 |
+|------|------|
+| ブラウザUI → Monitor管理API（GET系・実行系） | `x-aisle-admin: 1`（`isAuthorized()`。Studio既存パターンと同一） |
+| **RefBase → Monitor のサーバー間通信（Crawl Log ingest）** | **`Authorization: Bearer {MONITOR_INGEST_SECRET}`** |
+
+`MONITOR_INGEST_SECRET`はMonitor Crawl Log連携専用の共有シークレットであり、`EM_SHARED_SECRET`（既存・別用途）とは分離管理する。理由：UIの簡易認証（`x-aisle-admin`）はサーバー間連携に不向きであり、また将来Monitor以外の連携が増えた際に既存シークレットを使い回すと責務が曖昧になるため。RefBase側からのingestはFire-and-forgetを前提とし、ingest失敗（401/500含む）はRefBase側の表示に一切影響しない設計とする。
 
 ---
 
