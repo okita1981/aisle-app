@@ -135,6 +135,12 @@ export interface CrawlLogEntry {
   relatedContactRuns?: Array<{ runId: string; timeDeltaMinutes: number }>;
 }
 
+export interface MonitorCrawlLogGetResponse {
+  ok: boolean;
+  entries?: CrawlLogEntry[];
+  error?: string;
+}
+
 // ── /api/monitor-contact request/response（M1-2） ────────────────────────────
 
 export interface MonitorContactRequest {
