@@ -2643,6 +2643,67 @@ M1完了のブロッカーではない未実装項目：
 | B. Scheduled Contact | Parking Lot項目の本実装着手（定期実行・Schedule Config型の正式導入） |
 | C. RefBase側Bot検知連携 | 別リポジトリ（RefBase）側でのBot検知ミドルウェア実装・`monitor-crawl-ingest`への送信実装 |
 
+→ ユーザー指示によりA（UI実装）に決定。設計レビュー後、M2として実装。
+
+---
+
+## 44. M2完了記録 — Monitor UI実装（2026-06-30）
+
+### 設計レビュー（実装前に実施）
+
+`/monitor`ルート・Sidebar導線・タブ構成（Dashboard/Manual Contact/Appearance Monitoring/Crawl Log）・API接続方式・Entity/Reference/Provider選択UI・simulated表示・因果断定しないUI表現・M2範囲確定の9項目についてレビューを実施し、ユーザー承認後に実装した。レビュー時点で2件の確認事項を残した：①`/monitor`のPasswordGate保護要否、②`api/_monitor-types.ts`のsrc側直接import可否。
+
+### 確認事項の解決
+
+**① PasswordGate保護**：ユーザー指示により`/monitor`を保護対象として確定。あわせて`/authoring`（Publish操作を伴うため本来保護対象であるべきだった）も保護対象に追加。`PRIVATE_EXACT`・`PRIVATE_PREFIXES`の両方に`/authoring`・`/monitor`を追加（`/admin`と同じパターン）。
+
+**② 型のimport方式**：`npx tsc -b`（実際のbuildスクリプトと同一コマンド）で`src/components/MonitorWorkbench.tsx`から`api/_monitor-types.ts`を直接importするprobeを実行し、0エラーで成功することを実証確認。S4の`authoring.ts`ミラー型パターンは不要と判断し、`api/_monitor-types.ts`を直接importする方式を採用（型の二重管理を回避）。
+
+### 実装内容
+
+| ファイル | 内容 |
+|---------|------|
+| `src/App.tsx` | `/monitor`ルート追加（`/authoring`と同パターン） |
+| `src/components/MonitorWorkbench.tsx`（新規） | Dashboard/Manual Contact/Appearance Monitoring/Crawl Log の4タブUI |
+| `src/components/PasswordGate.tsx` | `/authoring`・`/monitor`を`PRIVATE_EXACT`・`PRIVATE_PREFIXES`に追加 |
+| `src/components/Sidebar.tsx` | Aisle Monitorリンク追加 |
+| `src/lib/monitorApi.ts`（新規） | GET/POST共通fetchラッパー（`authoringApi.ts`と同方針） |
+
+### デプロイ中に発見した不具合と修正
+
+`vercel.json`の`rewrites`に`/monitor`が未登録だったため、本番で`/monitor`が`/:slug`ルール経由で`/api/page-get?slug=monitor`にフォールバックし**404**になっていた（RefBaseにEntity「monitor」が存在しないため）。`/admin`・`/authoring`と同じ明示的な`index.html` rewriteを追加して解消（コミット`eb58d31`）。
+
+### 検証結果（本番確認・2026-06-30）
+
+| 項目 | 結果 | 確認方法 |
+|------|:---:|---------|
+| TypeScript 0エラー | ✅ | `tsc -b` |
+| clean clone build成功 | ✅ | 5ファイルのみ適用した別cloneで`npm run build`成功 |
+| Vercel buildがReady | ✅ | `npx vercel ls`で2回（UI実装コミット・routing修正コミット）とも確認 |
+| `/monitor`が本番で表示される | ✅ | `curl`でHTTP 200・SPAシェル（index.html）が返ることを確認。routing修正前は404だった |
+| PasswordGateが`/monitor`・`/authoring`に効いている | ✅（コード確認） | `PRIVATE_EXACT`/`PRIVATE_PREFIXES`への追加を確認。本番JSバンドル中に該当パス文字列が含まれることも確認 |
+| Sidebarから遷移できる | ✅（コード確認） | `Sidebar.tsx`に`/monitor`リンク追加済み |
+| Dashboardが実データを表示する | ✅ | `/api/monitor-dashboard`をAPI直叩きで確認。Contact実行前後でcontactCountが1→2に増加することを確認（集計が実データに連動） |
+| Manual ContactがUIから実行できる | ✅（API実行で確認） | UIが呼ぶのと同一の`POST /api/monitor-contact`を直接実行し、ContactRun/ContactItemが生成されることを確認 |
+| Appearance MonitoringがUIから実行できる | ✅（API実行で確認） | 同様に`POST /api/monitor-appearance`を直接実行し正常応答を確認 |
+| Crawl Logが表示される | ✅ | `GET /api/monitor-crawl-log`で既存2件のエントリ取得を確認 |
+| simulatedバッジが表示される | ✅ | 本番JSバンドルに`Simulated`文字列が含まれることを確認。実行結果にも`simulated: true`が一貫して返ることを確認 |
+| 因果断定する文言がない | ✅ | 本番JSバンドルを検索し、Monitor関連の「因果」を含む文字列が「因果断定はしません」「因果関係を示すものではありません」という否定形の開示文言のみであることを確認。`causedBy`等のフィールド名は検索してもヒットなし |
+| 既存`/`・`/admin`・`/authoring`が壊れていない | ✅ | 全ルートHTTP 200を確認 |
+
+**実施できなかった検証**：Chrome拡張機能が本セッションで接続不可だったため、ブラウザでの実クリック操作（タブ切り替え・フォーム入力・ボタン押下の目視確認）は実施できていない。上記の「✅」のうち「コード確認」「API実行で確認」と注記した項目は、UIコードが呼ぶAPIを直接実行して機能を証明したものであり、UIのレンダリング自体の目視確認ではない。ユーザー側で一度`/monitor`を開いての目視確認を推奨する。
+
+### コミット
+
+```
+f95ca26  feat: Aisle Monitor M2 — /monitor UI実装
+eb58d31  fix: /monitor のSPAルーティング欠落を修正
+```
+
+### M2完了判定
+
+**M2（Monitor UI実装）を完了とする。** ただし上記の「実施できなかった検証」が残っているため、ユーザーによる実ブラウザでの目視確認をもって最終確認とする。
+
 ---
 
 *このドキュメントは「実装の記録」ではなく「現在地の地図」。実装の変更はコードを変えること。このドキュメントは Sprint が進むたびに更新する。*
