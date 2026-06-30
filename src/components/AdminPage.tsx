@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import { CoveragePanel } from './CoveragePanel.js';
 import { EvidenceManager } from './EvidenceManager.js';
+import { RelationshipEditor } from './RelationshipEditor.js';
 
 // ── 型定義 ──────────────────────────────────────────────────────
 interface AdminEntity {
@@ -78,7 +79,7 @@ const SOURCE_TYPE_LABELS: Record<string, string> = {
   credential: '実績', media: 'メディア', metric: '数値', client: 'クライアント',
 };
 
-type AdminTab = 'entity' | 'coverage' | 'evidence';
+type AdminTab = 'entity' | 'coverage' | 'evidence' | 'relationship';
 
 // ── メインコンポーネント ─────────────────────────────────────────
 export function AdminPage() {
@@ -266,7 +267,7 @@ export function AdminPage() {
 
         {/* タブナビ */}
         <div className="max-w-4xl mx-auto mt-4 flex gap-1">
-          {([ ['entity', 'Entity / Reference'], ['coverage', 'Coverage Panel'], ['evidence', 'Evidence Manager'] ] as [AdminTab, string][]).map(([tab, label]) => (
+          {([ ['entity', 'Entity / Reference'], ['coverage', 'Coverage Panel'], ['evidence', 'Evidence Manager'], ['relationship', 'Relationship Editor'] ] as [AdminTab, string][]).map(([tab, label]) => (
             <button
               key={tab}
               type="button"
@@ -290,6 +291,9 @@ export function AdminPage() {
 
         {/* Evidence Manager タブ */}
         {activeTab === 'evidence' && <EvidenceManager initialSlugs={allSlugs} />}
+
+        {/* Relationship Editor タブ */}
+        {activeTab === 'relationship' && <RelationshipEditor />}
 
         {/* Entity / Reference タブ */}
         {activeTab === 'entity' && (<>
