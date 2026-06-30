@@ -4,12 +4,49 @@
  * api/_draft-types.ts と同形だが、tsconfig.app.json が api/ を含まないため
  * （include: ["src"]）、page-generate.ts と同じ方針でフロント側にも複製する。
  *
+ * 注意: src/types/index.ts の CoverageType / ResponseSchema / EvidenceItem は
+ * 未コミットの変更（Architecture Foundation v1.0 / Quality Sprint 由来）に
+ * 含まれており、本番ビルド（git clone ベース）には存在しない場合がある。
+ * そのため index.ts には依存せず、このファイル単体で完結させる。
+ *
  * ライフサイクル: Question Instance → Draft → Validated Draft → Reference → Publish
  */
 
-import type { CoverageType, EvidenceItem, ResponseSchema } from './index.js';
+// ── Coverage（api/_draft-types.ts と同形） ───────────────────────────────────
 
-export type { CoverageType, ResponseSchema };
+export type CoverageType = 'Identity' | 'Capability' | 'Differentiation' | 'Credibility' | 'UseCase';
+
+// ── Evidence（api/_draft-types.ts EvidenceItemInput と同形） ────────────────
+
+export interface AuthoringEvidenceItem {
+  type: string;
+  title: string;
+  description: string;
+  entityRole: string;
+  value?: string;
+  tags: string[];
+  sourceUrl?: string;
+  sourceType?: string;
+  confidence?: 'high' | 'medium' | 'low';
+  needsVerification?: boolean;
+  verificationNote?: string;
+  sourceVerified?: boolean;
+  coverageType?: string[];
+}
+
+// ── Response Schema（api/_draft-types.ts と同形） ───────────────────────────
+
+export interface ResponseSchemaSection {
+  sectionId: string;
+  label: string;
+  required: boolean;
+}
+
+export interface ResponseSchema {
+  promptTypeId: string;
+  sections: ResponseSchemaSection[];
+  citationRequired: boolean;
+}
 
 // ── Question Instance ───────────────────────────────────────────────────────
 
@@ -58,7 +95,7 @@ export interface Draft {
     attemptNumber: number;
   };
   narrative: ChildPageNarrative;
-  sourceEvidence: EvidenceItem[];
+  sourceEvidence: AuthoringEvidenceItem[];
 }
 
 // ── Validated Draft ──────────────────────────────────────────────────────────
@@ -106,7 +143,7 @@ export interface AuthoringReference {
   differentiation: string;
   faq: Array<{ question: string; answer: string }>;
   pageUrl: string;
-  sourceEvidence: EvidenceItem[];
+  sourceEvidence: AuthoringEvidenceItem[];
   generatedAt: string;
 }
 
@@ -117,7 +154,7 @@ export interface QIResolveRequest {
   companyName?: string;
   perPID: Array<{ promptTypeId: string; promptText: string }>;
   targetPromptTypeIds: string[];
-  adoptedEvidence?: EvidenceItem[];
+  adoptedEvidence?: AuthoringEvidenceItem[];
 }
 
 export interface QIResolveResponse {
@@ -138,7 +175,7 @@ export interface DraftGenerateRequest {
   productCategory: string;
   promptTypeId: string;
   promptText: string;
-  adoptedEvidence?: EvidenceItem[];
+  adoptedEvidence?: AuthoringEvidenceItem[];
   model?: string;
   attemptNumber?: number;
 }
