@@ -2706,4 +2706,76 @@ eb58d31  fix: /monitor のSPAルーティング欠落を修正
 
 ---
 
+## 45. Aisle Monitor統合判断 — emergence-monitorを正本化、aisle-app側M1/M2を削除（2026-06-30）
+
+### 経緯
+
+M3（RefBase側Bot検知連携）の設計レビューに着手したところ、`C:\Users\kousu\refbase\middleware.ts`（RefBase側Bot検知）が**既に実装済み**であることが判明した。送信先を調査した結果、今回新設した`monitor-crawl-ingest`ではなく、別の既存・本番稼働中プロジェクト `https://emergence-monitor.aisle-aio.ai`（Vercelプロジェクト名`emergence-monitor`、ローカルパス `C:\Users\kousu\OneDrive\Desktop\CLAUDE Aisle\emergence-monitor`）に送信する設計で実装されていた。
+
+このセッションの`CLAUDE.md`（aisle-app用）にはemergence-monitorの存在が記載されておらず、M1・M2はこのプロジェクトの存在を知らないまま並行して同種の機能を実装してしまった。
+
+### 棚卸し結果（emergence-monitor）
+
+| 項目 | emergence-monitor | aisle-app M1/M2 |
+|------|------|------|
+| AI Contact | ✅ 実API（Perplexity URL Contact + Claude/GPT/Gemini Page-Inject、4 Provider） | simulated中心・perplexityのみ |
+| Monitoring | ✅ 実API（4 Provider対応） | simulated中心 |
+| Crawl Log | ✅ 実装済み・2026-06-23に実クロール検知を検証済み | 実装済み・未検証 |
+| Competitor設定 | ✅ Entity別に管理（`em_entity_config`） | なし |
+| 永続化 | Supabase（PostgreSQL・RLS） | Vercel KV |
+| 最終更新 | 2026-06-23（22コミット） | 2026-06-30（今回新規） |
+| RefBase連携 | ✅ `middleware.ts`が最初からこちらを向いて実装・`EM_SHARED_SECRET`認証 | 未接続（`MONITOR_INGEST_SECRET`は使われなかった） |
+
+本番稼働確認（2026-06-30）：
+- `EM_SHARED_SECRET`がRefBase・aisle-app・emergence-monitorの3プロジェクトすべてに設定済み（7日前）
+- emergence-monitorの`/api/aisle-entity-list`を実行し、Aisle APPから実Entity一覧（31件）を取得できることを確認 → emergence-monitor↔aisle-app間の`EM_SHARED_SECRET`認証パイプラインが生きていることを実証
+- emergence-monitorの`/api/entity-config`がSupabase service-role経由で正常応答 → DB接続が生きていることを確認
+- RefBaseページへBot UA（PerplexityBot）でアクセスしてもページ表示に影響がないことを確認（`event.waitUntil()`による非同期送信）
+- emergence-monitorの`/api/crawl-log`診断用GETエンドポイントは`EM_SHARED_SECRET`が必要なため、このセッションでは値を取得せず未実行（後述の理由）。最新Crawl Log件数の目視確認はユーザー側でDashboardにログインして実施
+
+**確認できなかったこと・理由**：`vercel env pull`で取得した`.env`ファイル内で機密値（`EM_SHARED_SECRET`等）が空文字としてマスクされる挙動を確認した。これはこのサンドボックス環境による意図的な保護と判断し、値を取得する追加の回避策は取らなかった。また`VITE_ACCESS_PASSWORD`を要するDashboardログインも「パスワード入力」に該当するため行わなかった。
+
+### 統合判断
+
+**Aisle Monitorはemergence-monitorを正本とする。** aisle-app側のM1/M2 Monitor機能は「設計検証として実装したが、既存emergence-monitorの成熟度確認（実Provider接続・Supabase永続化・RefBase連携実績・Competitor設定）により正式採用しない」と判断し、削除した。
+
+### 削除内容（コミット`98fdbd9`）
+
+| 種別 | 内容 |
+|------|------|
+| 削除ファイル（10） | `api/monitor-entities.ts` / `api/monitor-contact.ts` / `api/monitor-appearance.ts` / `api/monitor-crawl-ingest.ts` / `api/monitor-crawl-log.ts` / `api/monitor-dashboard.ts` / `api/_monitor-types.ts` / `api/_monitor-providers.ts` / `src/components/MonitorWorkbench.tsx` / `src/lib/monitorApi.ts` |
+| `src/App.tsx` | `/monitor`ルート分岐と`MonitorWorkbench` importを削除 |
+| `src/components/PasswordGate.tsx` | `/monitor`を`PRIVATE_EXACT`/`PRIVATE_PREFIXES`から除去（`/authoring`は維持） |
+| `src/components/Sidebar.tsx` | Aisle Monitorリンクを`https://emergence-monitor.aisle-aio.ai`への外部リンク（`target="_blank"`・`rel="noopener noreferrer"`）に変更 |
+| `vercel.json` | `/monitor`・`/monitor/:path*`のindex.html rewriteを削除し、emergence-monitorへの**redirect**（307）に置き換え。404に戻さず正本へ誘導する設計 |
+| Vercel env | `MONITOR_INGEST_SECRET`をaisle-app本番環境から削除。`EM_SHARED_SECRET`は維持（RefBase連携で引き続き使用） |
+| Vercel KV | `monitor:contact:*`・`monitor:appearance:*`・`monitor:crawl:*` 計17キーを削除（残存0件を確認） |
+
+### 検証結果（本番確認・2026-06-30）
+
+| 項目 | 結果 |
+|------|:---:|
+| TypeScript 0エラー | ✅ |
+| clean clone build成功 | ✅（バンドルサイズ900KB→885KBに縮小し、削除を確認） |
+| `/monitor`がemergence-monitorへリダイレクトされる | ✅ HTTP 307、`/monitor/foo`もパス保持でリダイレクト確認 |
+| `monitor-*` APIが本番から消えている | ✅ HTTP 404（`monitor-dashboard`・`monitor-entities`で確認） |
+| `/authoring`のPasswordGateは維持 | ✅ |
+| 既存`/`・`/admin`・`/authoring`が壊れていない | ✅ 全てHTTP 200 |
+| `MONITOR_INGEST_SECRET`がaisle-app環境から削除 | ✅（`vercel env ls`で確認） |
+| `monitor:*` KVテストデータが削除されている | ✅ 17件削除・削除後残存0件 |
+| emergence-monitor本番は引き続きReady | ✅ |
+| Sidebarのリンクがemergence-monitorへの外部リンクになっている | ✅ 本番JSバンドルに`emergence-monitor.aisle-aio.ai`文字列・`MonitorWorkbench`文字列が完全消滅を確認 |
+
+### コミット
+
+```
+98fdbd9  refactor: Aisle Monitor統合 — aisle-app側M1/M2 Monitorを削除しemergence-monitorを正本化
+```
+
+### 教訓
+
+複数の関連プロジェクト（aisle-app / refbase / emergence-monitor）が同一ディレクトリ階層に並存する構成では、セッション開始時のCLAUDE.mdが対象リポジトリのみを記述していると、隣接プロジェクトの既存実装を見落とすリスクがある。今後、Monitor/Scope等の「観測レイヤー」に関わる作業に着手する際は、着手前に`C:\Users\kousu\OneDrive\Desktop\CLAUDE Aisle\`配下の兄弟ディレクトリを確認することを標準手順とする。
+
+---
+
 *このドキュメントは「実装の記録」ではなく「現在地の地図」。実装の変更はコードを変えること。このドキュメントは Sprint が進むたびに更新する。*
