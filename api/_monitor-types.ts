@@ -191,7 +191,24 @@ export interface EntitiesResponse {
   error?: string;
 }
 
-// ── Dashboard（M1-1は空データ・M1-5以降で本格集計） ───────────────────────────
+// ── Dashboard（M1-1は空データ・M1-5で本格集計） ───────────────────────────────
+//
+// 重要: Contact / Crawl / Appearance は常に独立した指標（independent metrics）として
+// 集計する。Contact→Crawl→Appearanceの転換・因果を示すフィールド（causedBy /
+// conversion / attribution / contactToAppearanceRate / 合成スコア等）は作らない。
+// 各指標は「同じEntity/Providerについて、それぞれ別々に何が起きたか」を横並びで
+// 示すのみで、相互の因果は一切主張しない。
+
+export type MonitorPeriod = '7d' | '30d' | 'all';
+
+/** 1 Provider分の独立集計（Entity単位の内訳）。他Provider・他指標との合成は行わない。 */
+export interface ProviderDashboardStats {
+  contactCount: number;
+  crawlCount: number;
+  appearanceCount: number;
+  appearanceRate: number;
+  citationCount: number;
+}
 
 export interface EntityDashboardRow {
   entityId: string;
@@ -202,10 +219,14 @@ export interface EntityDashboardRow {
   crawlCount: number;
   appearanceCount: number;
   appearanceRate: number;
+  citationCount: number;
+  /** Provider別の独立集計。キーはMonitorProviderId。 */
+  byProvider: Record<string, ProviderDashboardStats>;
 }
 
 export interface DashboardResponse {
   ok: boolean;
+  period?: MonitorPeriod;
   summary?: EntityDashboardRow[];
   error?: string;
 }
