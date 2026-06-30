@@ -2375,4 +2375,73 @@ S-03/S-04/S-05・Could群は引き続きPhase 2完了のブロッカーとしな
 
 ---
 
+## 39. Phase 2 正式完了判定（2026-06-30）
+
+S0〜S5・Coverage/Evidence本番反映・M-05・未追跡ドキュメント整理・PL-008を踏まえ、正式完了判定を実施した。
+
+### 完了の定義
+
+> Phase 2「Aisle Studio Complete」は、**Knowledge Authoring Platformとしての中核ライフサイクル（Question Instance → Draft → Validated Draft → Reference → Publish）が、設計・実装・本番デプロイ・動作確認のすべてにおいて一貫して完成し、RefBaseへ知識を届けられる状態になったこと**をもって完了とする。
+
+「Studioの全機能が完成した」という意味ではない。レポート品質・responseSchema準拠生成・Draft永続化・Entity Workspace・Evidence投入UI・Monitor連携・UX統合・Search/Filter等は、Phase 2完了の定義に含めず、Should/Could/Parking Lotとして継続管理する（Aisle Platform Specification Ver3.0 Section 8参照）。
+
+### 判定
+
+| 項目 | 判定 |
+|------|:----:|
+| Phase 2を完了扱いにする | ✅ |
+| Must（M-01〜M-05） | ✅ 全完了・未消化なし |
+| Phase 3（Aisle Monitor）着手 | ✅ 進んでよい（着手条件「L6+L7完了後」を充足） |
+
+### ステータス変更
+
+**Phase 2「Aisle Studio Complete」: 正式完了（2026-06-30）**
+
+---
+
+## 40. Design Freeze — Specification Ver3.0 作成完了（2026-06-30）
+
+Phase 2正式完了を受け、現時点の実装・設計・思想・既知課題を仕様書として確定（Design Freeze）。仕様書作成のための実装変更は行っていない。
+
+### 作成した仕様書
+
+| 仕様書 | 対象 | 状態 |
+|--------|------|:----:|
+| `AISLE_PLATFORM_SPECIFICATION_V3.md` | Platform全体・Studio・API・Data Model・Roadmap | ✅作成完了 |
+| `REFBASE_SPECIFICATION_V1.md` | RefBase専用（Question First思想・実装済み機能・未実装・今後の課題） | ✅作成完了（新規） |
+| `MONITOR_SPECIFICATION_V1.md` | Aisle Monitor（現状は実装ゼロであることを正確に記録） | ✅作成完了（新規） |
+
+### 作成方針
+
+- 既存コード・MASTER_ROADMAP.md・CLAUDE.md・既存設計資料（COVERAGE_POLICY_V1.md・STUDIO_UX_SEPARATION_REPORT.md・UI_UX_RECONCILIATION_REPORT.md）を根拠に実装ベースで記述
+- 推測・将来構想は現在仕様として書かず、Known Limitations / Technical Debt / Parking Lotに分離
+- 3冊間で同一概念（Publishable Knowledge・Relationship・Coverage・Question Instance等）の定義を統一
+- 仕様書作成のためのコード変更は一切なし
+
+### 運用ルール（正式採用）
+
+> **今後はSprint完了時に仕様書も同時更新することを正式運用とする。**
+
+Section 33の「Sprint完了時の必須手順」に以下を追加する：
+
+```
+1. git status確認
+2. 変更ファイルのスコープ確認
+3. commit対象の明示
+4. commit
+5. push
+6. 本番デプロイ確認（vercel ls / vercel inspect --logs）
+7. 本番動作確認
+8. MASTER_ROADMAP更新
+9. ★ 該当する仕様書（AISLE_PLATFORM_SPECIFICATION / REFBASE_SPECIFICATION / MONITOR_SPECIFICATION）を更新（新規追加）
+```
+
+Sprintの内容がPlatform全体・Studio・API・Data Modelに関わる場合は`AISLE_PLATFORM_SPECIFICATION_V3.md`を、RefBase（別リポジトリ）に関わる場合は`REFBASE_SPECIFICATION_V1.md`を、Monitor着手後は`MONITOR_SPECIFICATION_V1.md`を更新する。MASTER_ROADMAPが「現在地の地図（経緯・記録）」であるのに対し、仕様書群は「現時点の到達点（設計書・引継ぎ資料）」という役割分担とする。
+
+### 次のアクション
+
+→ Phase 3 Aisle Monitor キックオフ（設計レビューから開始）。
+
+---
+
 *このドキュメントは「実装の記録」ではなく「現在地の地図」。実装の変更はコードを変えること。このドキュメントは Sprint が進むたびに更新する。*
