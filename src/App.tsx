@@ -4,6 +4,7 @@ import { StepBar } from './components/StepBar';
 import { PasswordGate } from './components/PasswordGate';
 import { AdminPage } from './components/AdminPage';
 import { AuthoringWorkbench } from './components/AuthoringWorkbench';
+import { MonitorWorkbench } from './components/MonitorWorkbench';
 import { Phase0LogCollect } from './phases/Phase0LogCollect';
 import { Phase1Evaluation } from './phases/Phase1Evaluation';
 import { Phase2Design } from './phases/Phase2Design';
@@ -24,6 +25,16 @@ function App() {
       <PasswordGate>
         <div className="max-w-5xl mx-auto p-6">
           <AuthoringWorkbench />
+        </div>
+      </PasswordGate>
+    );
+  }
+  // /monitor ルート（M2 Monitor Workbench）
+  if (window.location.pathname === '/monitor') {
+    return (
+      <PasswordGate>
+        <div className="max-w-6xl mx-auto p-6">
+          <MonitorWorkbench />
         </div>
       </PasswordGate>
     );
