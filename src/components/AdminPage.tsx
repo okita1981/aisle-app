@@ -1,4 +1,6 @@
 import { useState, useCallback, useEffect } from 'react';
+import { CoveragePanel } from './CoveragePanel.js';
+import { EvidenceManager } from './EvidenceManager.js';
 
 // ── 型定義 ──────────────────────────────────────────────────────
 interface AdminEntity {
@@ -76,8 +78,11 @@ const SOURCE_TYPE_LABELS: Record<string, string> = {
   credential: '実績', media: 'メディア', metric: '数値', client: 'クライアント',
 };
 
+type AdminTab = 'entity' | 'coverage' | 'evidence';
+
 // ── メインコンポーネント ─────────────────────────────────────────
 export function AdminPage() {
+  const [activeTab, setActiveTab] = useState<AdminTab>('entity');
   const [clientSlugInput, setClientSlugInput] = useState('');
   const [loadedSlug, setLoadedSlug]           = useState('');
   const [data, setData]                       = useState<AdminData | null>(null);
@@ -258,9 +263,36 @@ export function AdminPage() {
             ← Aisle APP に戻る
           </a>
         </div>
+
+        {/* タブナビ */}
+        <div className="max-w-4xl mx-auto mt-4 flex gap-1">
+          {([ ['entity', 'Entity / Reference'], ['coverage', 'Coverage Panel'], ['evidence', 'Evidence Manager'] ] as [AdminTab, string][]).map(([tab, label]) => (
+            <button
+              key={tab}
+              type="button"
+              onClick={() => setActiveTab(tab)}
+              className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                activeTab === tab
+                  ? 'bg-indigo-600 text-white'
+                  : 'text-slate-500 hover:text-slate-700 hover:bg-slate-100'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
       </div>
 
       <div className="max-w-4xl mx-auto px-6 py-8 space-y-8">
+
+        {/* Coverage Panel タブ */}
+        {activeTab === 'coverage' && <CoveragePanel />}
+
+        {/* Evidence Manager タブ */}
+        {activeTab === 'evidence' && <EvidenceManager initialSlugs={allSlugs} />}
+
+        {/* Entity / Reference タブ */}
+        {activeTab === 'entity' && (<>
 
         {/* clientSlug 入力 */}
         <section>
@@ -321,7 +353,7 @@ export function AdminPage() {
           )}
         </section>
 
-        {data && (
+        {data && activeTab === 'entity' && (
           <>
             {/* ── Entity 情報 ───────────────────────────────────── */}
             <section className="bg-white rounded-xl border border-slate-200 p-6">
@@ -489,6 +521,7 @@ export function AdminPage() {
             </section>
           </>
         )}
+        </>)}
       </div>
 
       {/* ── プレビューモーダル ─────────────────────────────────── */}

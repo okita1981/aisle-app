@@ -322,6 +322,103 @@ export interface AppearanceSummary {
   implementationProposal: string;
 }
 
+// ===================== Architecture Foundation v1.0 =====================
+// Sprint 1 / 1.5 で追加。既存フィールドへの変更なし。
+
+// ── Registry Metadata（Sprint 1.5 追加）────────────────────────────────────
+
+/** Registry オブジェクトの運用ステータス */
+export type RegistryStatus = 'ACTIVE' | 'DEPRECATED' | 'DRAFT';
+
+/**
+ * すべての Registry が持つ共通ヘッダ。
+ * version / status で将来の切り替え・廃止を機械的に管理できる。
+ * items[] に各 Registry の実データを格納する。
+ */
+export interface RegistryEnvelope<T> {
+  registryId: string;     // 例: "coverageTypes"
+  version: string;        // セマンティックバージョン（例: "1.0"）
+  status: RegistryStatus; // ACTIVE / DEPRECATED / DRAFT
+  description: string;    // このRegistryが何を管理するかの説明
+  owner: string;          // 管理責任者 / チーム（例: "Aisle Studio Architecture"）
+  createdAt: string;      // ISO 8601
+  updatedAt: string;      // ISO 8601
+  items: T[];             // Registry の実データ配列
+}
+
+// ── Coverage Model ────────────────────────────────────────────────────────
+
+/** Evidence がカバーする知識の軸（5軸）。件数ではなく軸で Coverage を管理する。 */
+export type CoverageType =
+  | 'Identity'        // そのEntityが何者か
+  | 'Capability'      // 何ができるか・何を提供するか
+  | 'Differentiation' // 他との違い・独自性・強み
+  | 'Credibility'     // 信頼できる根拠・実績・第三者評価
+  | 'UseCase';        // 誰がどう使うか・どんな課題を解くか
+
+export interface CoverageResult {
+  ok: boolean;
+  coveredTypes: CoverageType[];
+  missingTypes: CoverageType[];
+  coverageScore: number; // 0〜1（coveredTypes.length / requiredCoverage.length）
+}
+
+// ── Source Class ─────────────────────────────────────────────────────────
+
+/** Evidence の用途分類（AIが何のために使うか）。Evidence Architecture v2.0 で定義。 */
+export type SourceClass =
+  | 'Specification'  // 仕様・動作定義
+  | 'Announcement'   // 発表・表明
+  | 'Documentation'  // 説明・解説
+  | 'Research'       // 研究・調査
+  | 'Presentation'   // 発表・講演
+  | 'CaseStudy'      // 事例
+  | 'Benchmark'      // 比較・計測
+  | 'Profile'        // 自己紹介・概要
+  | 'Interview'      // 発言・インタビュー
+  | 'Financial';     // 財務・事業情報
+
+// ── Response Schema ───────────────────────────────────────────────────────
+
+/** P-ID 別の回答セクション定義。Quality Audit（L6）の検証基準になる。 */
+export interface ResponseSchemaSection {
+  sectionId: string;   // セクション識別子（例: "summary"）
+  label: string;       // 表示名
+  required: boolean;   // true = L6 が存在確認する
+}
+
+export interface ResponseSchema {
+  promptTypeId: string;              // P-01 〜 P-06
+  sections: ResponseSchemaSection[];
+  citationRequired: boolean;         // true = citation[] が必須（L6 が確認）
+}
+
+// ── Question Template ─────────────────────────────────────────────────────
+
+/** P-ID ごとの問いの型。Entity非依存。DP-001（Unknown Entity Test）を満たす設計。 */
+export interface QuestionTemplate {
+  templateId: string;                // 例: "QT-P01-001"
+  promptTypeId: string;              // P-01 〜 P-06
+  status: RegistryStatus;            // ACTIVE / DEPRECATED / DRAFT（Sprint 1.5 追加）
+  templateText: string;              // プレースホルダ入り問い文（例: "{entityName}とは何ですか？"）
+  requiredCoverage: CoverageType[];  // QuestionInstance 生成前に必須の Coverage 軸
+  optionalCoverage: CoverageType[];  // あれば回答品質が上がる Coverage 軸
+  responseSchema: ResponseSchema;    // 生成回答の構造定義
+  createdAt: string;
+}
+
+// ── Question Instance ─────────────────────────────────────────────────────
+
+/** QuestionTemplate に Entity を適用して生成した個別の問い。KV 書き込みは Sprint 3。 */
+export interface QuestionInstance {
+  instanceId: string;     // 例: "QIN-aisle-P01-001"
+  templateId: string;     // 生成元 QuestionTemplate の ID
+  entityId: string;       // 適用した Entity の slug
+  promptTypeId: string;   // P-01 〜 P-06
+  resolvedText: string;   // プレースホルダを解決した実際の問い文
+  createdAt: string;
+}
+
 // ===================== Evidence Layer =====================
 
 export type EvidenceType =
@@ -353,6 +450,19 @@ export interface EvidenceItem {
   sourceUrl?: string;
   sourceType?: EvidenceSourceType;
   confidence?: 'high' | 'medium' | 'low';
+  // ── Architecture Foundation v1.0 追加フィールド（任意・後方互換）──────────
+  evidenceId?: string;                  // "{entitySlug}-ev-{連番4桁}" 採番済み ID
+  coverageType?: CoverageType[];        // この Evidence がカバーする Coverage 軸
+  sourceClass?: SourceClass;            // 用途分類（Evidence Architecture v2.0）
+  supportedPromptTypes?: string[];      // 寄与する P-ID 一覧（例: ["P-02","P-05"]）
+  // ── Evidence Architecture v2.0 追加フィールド（任意・後方互換）────────────
+  tier?: 'T1' | 'T2' | 'T3' | 'T4';   // Evidence Tier（所有者: T1=Entity管理）
+  citationType?: string;                // 引用種別（fact / statement / methodology 等）
+  evidenceStrength?: 'definitive' | 'strong' | 'moderate' | 'weak';
+  needsVerification?: boolean;
+  sourceVerified?: boolean;
+  publicationDate?: string | null;
+  lastVerifiedAt?: string | null;
 }
 
 export interface EvidenceResult {
