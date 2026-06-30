@@ -20,6 +20,8 @@
     { "source": "/admin/:path*",       "destination": "/index.html" },
     { "source": "/authoring",          "destination": "/index.html" },
     { "source": "/authoring/:path*",   "destination": "/index.html" },
+    { "source": "/monitor",            "destination": "/index.html" },
+    { "source": "/monitor/:path*",     "destination": "/index.html" },
     { "source": "/llms.txt",           "destination": "/api/page-generate?format=llms" },
     { "source": "/aisle/:childSlug",   "destination": "/api/page-get?slug=aisle/:childSlug" },
     { "source": "/:clientSlug/questions/:questionSlug", "destination": "/api/page-get?clientSlug=:clientSlug&questionSlug=:questionSlug" },
