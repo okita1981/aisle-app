@@ -3,6 +3,7 @@ import { Sidebar } from './components/Sidebar';
 import { StepBar } from './components/StepBar';
 import { PasswordGate } from './components/PasswordGate';
 import { AdminPage } from './components/AdminPage';
+import { AuthoringWorkbench } from './components/AuthoringWorkbench';
 import { Phase0LogCollect } from './phases/Phase0LogCollect';
 import { Phase1Evaluation } from './phases/Phase1Evaluation';
 import { Phase2Design } from './phases/Phase2Design';
@@ -16,6 +17,16 @@ function App() {
   // /admin ルート
   if (window.location.pathname === '/admin') {
     return <PasswordGate><AdminPage /></PasswordGate>;
+  }
+  // /authoring ルート（S4 Authoring Workbench）
+  if (window.location.pathname === '/authoring') {
+    return (
+      <PasswordGate>
+        <div className="max-w-5xl mx-auto p-6">
+          <AuthoringWorkbench />
+        </div>
+      </PasswordGate>
+    );
   }
   const isReport = currentPhase === 6;
 
