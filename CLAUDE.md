@@ -1,8 +1,50 @@
 ﻿# CLAUDE.md — Aisle aisle-app 実装ガイダンス
 
-最終更新: 2026-07-01（Entity追加 Sprint — Developer Ecosystem Super Cluster パイロット完了）
+最終更新: 2026-07-01（Evidence Verification Sprint — sourceVerified/Credibility運用ルール確定）
 本番URL: https://app.aisle-aio.ai
 リポジトリ: `C:\Users\kousu\OneDrive\Desktop\CLAUDE Aisle\aisle-app`
+
+---
+
+## -1. Evidence Verification 運用ルール（2026-07-01確定・最優先）
+
+**RefBaseはEvidence品質をEntity数より優先する。** 以下は全Evidence作成・更新に適用する最上位ルール。
+
+### sourceVerified
+
+`sourceVerified: true` は、**実際にSourceへアクセスし内容を確認した場合のみ**付与する。URLの存在を知っている・一般知識と一致している、という理由だけでtrueにしてはならない。
+
+### needsVerification
+
+内容の裏取り（実アクセスによる確認）が完了するまでは `needsVerification: true` とする。デフォルトは検証待ちであり、確認が取れて初めて`false`にする。
+
+### Credibility と Identity の区別（重要・混同しやすい）
+
+| 分類 | 該当する内容 | 具体例 |
+|---|---|---|
+| **Credibility**（客観的事実） | 第三者が検証・付与した実績のみ | 第三者認証、上場企業IR情報、公式導入実績（クライアント名等）、査読論文、GitHub公式統計、客観的利用実績、第三者評価 |
+| **Identity**（属性・経歴） | Entity自身の属性・経歴。第三者評価を伴わない | 創業年、買収された事実、YC出身、親会社、組織形態 |
+
+「買収された」「YC出身」等は一見Credibilityに見えるが、**新ルールでは明確にIdentityに分類する**。この区別を誤ると、Coverage Engineが実際には存在しない信頼性の根拠をあるものとして扱ってしまう。
+
+### 2026-07-01実施：GitHub / Vercel / Supabase の是正
+
+パイロットEntity（GitHub・Vercel・Supabase）追加時、Evidenceの`sourceVerified`を実アクセス確認なしに`true`にしていたことが判明。以下の是正を実施：
+
+1. 全15 Evidence（5件×3 Entity）の`sourceVerified`を`false`に、`needsVerification`を`true`に一括変更
+2. Credibility再分類：
+   - `github-ev-001`（Microsoft買収の事実）：Credibility削除、Identityのみに変更
+   - `vercel-ev-005`（カンファレンス主催実績）：Credibility削除、Identityへ変更（第三者評価に該当しないため）
+   - `supabase-ev-005`（YC出身）：Credibility削除、Identityへ変更（新ルールの明示例に該当）
+   - `github-ev-005`（OSSプロジェクトのホスティング実績）：客観的利用実績としてCredibility維持（ただし要検証）
+
+**⚠️ 重要な副作用（Evidence Verification Sprintで必ず対応すること）**：この是正の結果、**GitHub・Vercel・Supabaseの3 Entityとも検証済みCredibility Evidenceが0件**になった。これにより、既に生成済みの以下のReferenceは、本来満たすべき`citationRequired`の検証済みEvidence根拠を失った状態にある：
+
+- `github/ranking-001`（P-03）・`github/citation-001`（P-05）
+- `vercel/ranking-001`（P-03）・`vercel/citation-001`（P-05）
+- `supabase/ranking-001`（P-03）・`supabase/citation-001`（P-05）
+
+Evidence Verification Sprintでは、実アクセスによる確認を行い、Credibility Evidenceを最低1件ずつ検証済み（`needsVerification: false`かつ`sourceVerified: true`）にした上で、上記6件のReferenceのsourceEvidenceを再確認・必要なら再生成すること。
 
 ---
 
