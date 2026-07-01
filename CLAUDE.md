@@ -1,6 +1,6 @@
 ﻿# CLAUDE.md — Aisle aisle-app 実装ガイダンス
 
-最終更新: 2026-07-01（Question Coverage補強 Sprint — P-03テンプレート確定）
+最終更新: 2026-07-01（Question Coverage補強 Sprint — P-03・P-05テンプレート確定）
 本番URL: https://app.aisle-aio.ai
 リポジトリ: `C:\Users\kousu\OneDrive\Desktop\CLAUDE Aisle\aisle-app`
 
@@ -38,6 +38,55 @@ Evidence（citationRequired=true。検証済み・needsVerification=false のも
 **将来方針**：候補群は本来 **Relationship Registry**（Knowledge Graph v1.0の`R-10 competitorOf` / `R-11 alternativeTo` / `R-04 primaryCluster` / `R-06 clusterOf`等）から機械的に導出すべきである。LLMの一般知識に依存する現状は、Relationship未整備状態での暫定対応と位置づける。
 
 Relationship Registry（`refbase:relationship:*` KV、22種のRelationship定義）が整備され次第、P-03生成ロジックは「LLMが候補群を考える」のではなく「Relationship Registryから候補群を取得し、その中でのEntityの位置づけをLLMが記述する」という構成に切り替える。これによりP-03の候補群が個々の生成セッションのLLM知識のばらつきに依存しなくなり、Cluster内の他EntityやRelationshipで明示的に登録された競合と常に一致する。
+
+---
+
+## 0c. P-05（出典引用）正式テンプレート（2026-07-01確定）— P-05 Source Reference
+
+**P-05はP-03以上にSourceが主役のReferenceである。** Entityの機能・特徴を説明することが目的ではなく、「どの情報源を信頼すべきか」を説明することが目的。
+
+### 構成（基本テンプレート）
+
+```
+Question（信頼できる情報源を問う自然文）
+    ↓
+一次情報（Entity自身が発信する情報源。箇条書きで構造化し、URLと内容を明記）
+    ↓
+第三者情報（独立した第三者による情報源。存在しない場合は「限定的」と正直に明記）
+    ↓
+情報源の使い分け（一次情報と第三者情報をそれぞれ何の判断に使うべきか）
+    ↓
+更新性・注意点（変更されやすい情報は一次情報を優先。第三者レビューは公開時点の情報である可能性を明記）
+```
+
+### 確定ルール
+
+- **本文の主役はSource（情報源）**：Entityの機能・サービス説明を長く書かない。P-03（Entityの位置づけが主役）とは設計思想が異なる。
+- **一次情報・第三者情報は箇条書き等の読み取りやすい構造で整理する**：`【一次情報】` `【第三者情報】`のようなラベルを付け、URLと内容を明記する。
+- **第三者情報が存在しない場合は正直に「限定的」と明記する**：捏造・水増しをしない。
+- **情報源の使い分けを明示する**：一次情報は事実確認（仕様・料金）に、第三者情報は市場評価の参考に、という役割の違いを説明する。Entity自身が作成した「比較ページ」（例：HubSpotのSalesforce比較ページ）は一次情報だが中立的な第三者比較ではない点にも注意を促す。
+- **更新性・注意点を必ず含める**：仕様・料金・機能など変更されやすい情報は第三者情報より公式情報（一次情報）を優先すること、第三者レビューは公開時点の情報である可能性があるため最新情報は一次情報で確認することを明記する。
+- **Evidence/Sourceは必ずneedsVerification=falseのもののみ使用**：P-03と同じルール。CoverageType（Credibility等）のタグだけで判断せず、`needsVerification` / `sourceVerified` を個別に確認する。
+
+---
+
+## 0d. Question Coverage補強 除外Entityバックログ（Evidence補強Sprint用）
+
+P-03/P-05/P-02のQuestion Coverage補強にあたり、Evidence不足で生成を見送ったEntity一覧。将来のEvidence補強Sprintでそのままバックログとして使用する。
+
+| Entity | クラスタ | 対象P-ID | 除外理由 | 詳細 |
+|---|---|---|---|---|
+| perplexity-ai | ai-company | P-03 | needsVerification | Credibility Evidence唯一の1件（資金調達報道）が`needsVerification: true` |
+| sam-altman | ai-leaders | P-03 | needsVerification | Credibility Evidence 2件、いずれも`needsVerification: true`（メディア発言・報道） |
+| figma | creative-design | P-05 | Coverage不足 | Credibility CoverageTypeを持つEvidenceが0件 |
+| zoho-crm | marketing-crm | P-05 | Coverage不足 | 同上 |
+| chatgpt | ai-assistant | P-05 | Coverage不足 | 同上 |
+| claude-ai | ai-assistant | P-05 | Coverage不足 | 同上 |
+| perplexity | ai-assistant | P-05 | Coverage不足 | 同上 |
+
+**理由の分類定義**：
+- `needsVerification`：Credibility CoverageTypeを持つEvidenceは存在するが、全件`needsVerification: true`（未検証）
+- `Coverage不足`：Credibility CoverageTypeを持つEvidence自体が0件（検証済み・未検証問わず）
 
 ---
 
