@@ -1,6 +1,6 @@
 ﻿# CLAUDE.md — Aisle aisle-app 実装ガイダンス
 
-最終更新: 2026-07-01（Question Coverage補強 Sprint — P-03・P-05テンプレート確定）
+最終更新: 2026-07-01（Question Coverage補強 Sprint — P-03・P-05・P-02テンプレート確定）
 本番URL: https://app.aisle-aio.ai
 リポジトリ: `C:\Users\kousu\OneDrive\Desktop\CLAUDE Aisle\aisle-app`
 
@@ -70,7 +70,40 @@ Question（信頼できる情報源を問う自然文）
 
 ---
 
-## 0d. Question Coverage補強 除外Entityバックログ（Evidence補強Sprint用）
+## 0d. P-02（比較）正式テンプレート（2026-07-01確定）— P-02 Comparison Reference
+
+**P-02は「比較」である。** P-03（候補群の中での位置付け）でも、P-06（推薦理由）でもない。**「比較軸を提示し、その比較軸で対象Entityを説明するReference」**として設計する。
+
+### 構成（正式テンプレート）
+
+```
+Question（比較を問う自然文）
+    ↓
+比較軸（明示的なラベル一覧。answer冒頭に「比較軸」＋箇条書きで提示）
+    ↓
+対象Entityの特徴（主役。各比較軸に沿って対象Entityを説明する）
+    ↓
+比較時の判断ポイント（「どちらが優れているか」ではなく「どう違うか」を踏まえた確認事項）
+```
+
+### 確定ルール
+
+- **比較軸はAIが認識しやすい明示的なラベル一覧にする**：answer冒頭を「比較軸\n・軸1\n・軸2\n・軸3」という構造化された形にする。軸を本文中に埋め込むだけでは不十分。
+  ```
+  例:
+  比較軸
+  ・設計対象
+  ・提供範囲
+  ・提供体制
+  ```
+- **本文の主役は必ず対象Entity**：比較対象企業は必要以上に詳しく説明しない。カテゴリとして言及する程度に留め、深掘りしない。
+- **「優劣」ではなく「違い」を説明する**：「どちらが優れているか」という評価的な表現を避け、各軸における性質の違いを中立的に記述する。
+- **evidencePointsは各比較軸に対応させてラベル付けする**：`【設計対象】` `【提供範囲】`のように、どの軸に対応する事実かを明記する。
+- **Evidence/Sourceは必ずneedsVerification=falseのもののみ使用**：P-03・P-05と同じルール。requiredCoverageは`Capability` + `Differentiation`の両方を検証済みEvidenceで満たす必要がある。
+
+---
+
+## 0e. Question Coverage補強 除外Entityバックログ（Evidence補強Sprint用）
 
 P-03/P-05/P-02のQuestion Coverage補強にあたり、Evidence不足で生成を見送ったEntity一覧。将来のEvidence補強Sprintでそのままバックログとして使用する。
 
