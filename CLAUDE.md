@@ -1,8 +1,57 @@
 ﻿# CLAUDE.md — Aisle aisle-app 実装ガイダンス
 
-最終更新: 2026-07-01（Question Coverage補強 Sprint — P-03・P-05・P-02テンプレート確定）
+最終更新: 2026-07-01（Entity追加 Sprint — Developer Ecosystem Super Cluster パイロット完了）
 本番URL: https://app.aisle-aio.ai
 リポジトリ: `C:\Users\kousu\OneDrive\Desktop\CLAUDE Aisle\aisle-app`
+
+---
+
+## 0a. Entity追加 Sprint — Developer Ecosystem Super Cluster（2026-07-01・パイロット完了）
+
+### Cluster階層設計（確定）
+
+`developer-ecosystem` を **Super Cluster** とし、将来的に機能軸の Sub Cluster へ分割する設計とする。
+
+```
+developer-ecosystem（Super Cluster）
+  ├── hosting（Vercel等）
+  ├── backend-platform（Supabase等）
+  ├── container（Docker等・未着手）
+  ├── devops（GitHub, GitLab等）
+  └── infrastructure-as-code（HashiCorp等・未着手）
+```
+
+現状の実装：Entity の `primaryCluster` にSub Cluster名を、`secondaryClusters` に`developer-ecosystem`を設定する形で表現する（Cluster自体のKVレジストリ`refbase:cluster:*`は未実装のため、Entityフィールドのみで表現）。
+
+### パイロット完了：GitHub / Vercel / Supabase（2026-07-01）
+
+| slug | entityType | primaryCluster | secondaryClusters | parentEntity |
+|---|---|---|---|---|
+| github | company | devops | developer-ecosystem | microsoft |
+| vercel | company | hosting | developer-ecosystem | null |
+| supabase | company | backend-platform | developer-ecosystem | null |
+
+各EntityにEvidence 5件（Identity/Capability/Differentiation/Credibility全CoverageType充足・全件needsVerification=false）とReference 6件（P-01〜P-06全種）を作成。Quality Audit 99項目全パス、本番URL 21件（Reference18+Entity3）で200確認済み。
+
+**Relationship修正**：GitHub Entity新設に伴い、`github-copilot`の`parentEntity`を`microsoft`→`github`に変更。Microsoft→GitHub→GitHub Copilotの正しいRelationship chainを構築した。
+
+**Evidence作成上の注意（今回の運用ルール）**：新規Entity追加時、Evidence内容に数値が不確実な情報（資金調達額・正確な日付等）を含めない。安定して広く知られている事実（買収年・製品開発元・OSSであること等）のみでEvidenceを構成し、Web検索等でのファクトチェックが行われるまでは「未検証扱いの一次情報」として運用する。
+
+### Relationship候補（未実装・design記録のみ）
+
+`refbase:relationship:*` KVは未実装のため、以下はRelationship Registry実装後に反映する設計候補として記録する。
+
+| Entity | competitorOf | alternativeTo | parentEntity |
+|---|---|---|---|
+| GitHub | GitLab, Bitbucket（未登録） | GitLab, Bitbucket | microsoft |
+| Vercel | Netlify（未登録） | Netlify, Cloudflare Pages（未登録） | null |
+| Supabase | Firebase（未登録） | Firebase, PlanetScale（未登録） | null |
+
+**Relationship中心Entity候補（次点追加優先）**：Netlify・Firebase・GitLab・IBM・Cloudflare・Docker・HashiCorp・Pulumi・Podman。いずれもRelationshipの相手先として重要度が高く、追加によりcompetitorOf/alternativeToが双方向で機能するようになる。
+
+### 次のアクション（Priority 1残り）
+
+Docker・GitLab・HashiCorpの3件をパイロットと同じ手順（Cluster割当・Evidence 5件・Reference 6件・Relationship記録）で横展開する。特にHashiCorpは`parentEntity: IBM`を設定する前提のため、IBM Entity自体の追加要否を判断してから着手する。
 
 ---
 
