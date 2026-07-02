@@ -65,6 +65,14 @@ export function RefBaseGrowthDashboard() {
 
   useEffect(() => {
     document.title = 'RefBase Growth Dashboard (Internal)';
+    const meta = document.createElement('meta');
+    meta.name = 'robots';
+    meta.content = 'noindex, nofollow';
+    document.head.appendChild(meta);
+    return () => { document.head.removeChild(meta); };
+  }, []);
+
+  useEffect(() => {
     setLoading(true);
     fetch('/api/refbase-growth-metrics', { headers: { 'x-aisle-admin': '1' } })
       .then(r => r.json())
@@ -78,7 +86,6 @@ export function RefBaseGrowthDashboard() {
 
   return (
     <div className="max-w-6xl mx-auto p-6 space-y-8">
-      <meta name="robots" content="noindex, nofollow" />
       <div>
         <h1 className="text-lg font-bold text-slate-800 mb-1">RefBase Growth Dashboard</h1>
         <p className="text-sm text-slate-500">内部運用専用（Read Only）。RefBase本番KVから集計。</p>
