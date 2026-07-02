@@ -3,7 +3,6 @@ import { Sidebar } from './components/Sidebar';
 import { StepBar } from './components/StepBar';
 import { PasswordGate } from './components/PasswordGate';
 import { AdminPage } from './components/AdminPage';
-import { RefBaseGrowthDashboard } from './components/RefBaseGrowthDashboard';
 import { AuthoringWorkbench } from './components/AuthoringWorkbench';
 import { Phase0LogCollect } from './phases/Phase0LogCollect';
 import { Phase1Evaluation } from './phases/Phase1Evaluation';
@@ -15,10 +14,6 @@ import { Report } from './phases/Report';
 function App() {
   const { currentPhase } = useAppStore();
 
-  // /admin/refbase-growth ルート（RefBase Growth Dashboard・内部運用専用・Read Only）
-  if (window.location.pathname === '/admin/refbase-growth') {
-    return <PasswordGate><RefBaseGrowthDashboard /></PasswordGate>;
-  }
   // /admin ルート
   if (window.location.pathname === '/admin') {
     return <PasswordGate><AdminPage /></PasswordGate>;
