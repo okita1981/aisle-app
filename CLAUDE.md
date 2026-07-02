@@ -1,6 +1,6 @@
 ﻿# CLAUDE.md — Aisle aisle-app 実装ガイダンス
 
-最終更新: 2026-07-01（Evidence Verification Sprint — sourceVerified/Credibility運用ルール確定）
+最終更新: 2026-07-01（Entity Verification Status体系を確定）
 本番URL: https://app.aisle-aio.ai
 リポジトリ: `C:\Users\kousu\OneDrive\Desktop\CLAUDE Aisle\aisle-app`
 
@@ -45,6 +45,22 @@
 - `supabase/ranking-001`（P-03）・`supabase/citation-001`（P-05）
 
 Evidence Verification Sprintでは、実アクセスによる確認を行い、Credibility Evidenceを最低1件ずつ検証済み（`needsVerification: false`かつ`sourceVerified: true`）にした上で、上記6件のReferenceのsourceEvidenceを再確認・必要なら再生成すること。
+
+### Entity Verification Status（2026-07-01確定）
+
+**方針：Evidence未検証であっても公開は停止しない。** 問題はReference内容ではなくEvidence Verification Statusであるため、Reference削除ではなく**状態管理**で対応する。
+
+| Status | 条件 | 意味 |
+|---|---|---|
+| **Draft** | Evidence全体または一部が`sourceVerified=false` / `needsVerification=true` | Reference・Entityは公開するが、Evidenceの実アクセス確認が未完了 |
+| **Verified** | 該当EvidenceがすべてSource実アクセス確認済み（`sourceVerified=true`かつ`needsVerification=false`） | Evidenceの裏取りが完了した状態 |
+| **Featured** | Verified **かつ** Evidenceが十分（5軸CoverageTypeを充足） **かつ** Question Coverageも十分（P-01〜P-06が揃っている） | 品質・網羅性ともに最高水準のEntity |
+
+**KVフィールド**：`refbase:company:{slug}`に`verificationStatus: "draft" | "verified" | "featured"`を追加（Data Dictionary後方互換の新規フィールド）。
+
+**2026-07-01時点の適用**：GitHub・Vercel・Supabaseの3 Entityに`verificationStatus: "draft"`を設定済み。Evidence Verification SprintでのCredibility Evidence実アクセス確認が完了次第、`verified`へ更新する。P-01〜P-06全種は既に揃っているため、Verified後は自動的にFeatured相当の網羅性を満たす。
+
+**運用ルール**：新規Entity追加時は原則`draft`から開始する。実アクセスでEvidenceを確認した場合のみ`verified`に昇格させる。既存31 Entity（Growth Sprintで追加）は`verificationStatus`フィールド自体が存在しないため、後方互換上は「未設定＝ステータス管理対象外（レガシー）」として扱い、次のQuality Sprintで遡及的にステータス付与を検討する。
 
 ---
 
